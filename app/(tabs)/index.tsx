@@ -4,13 +4,14 @@ import {
   Text,
   Card,
   useTheme,
-  Chip,
   Switch,
   TextInput,
   IconButton,
   ActivityIndicator,
   Surface,
+  Divider,
 } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { format, addDays, subDays, parseISO, isToday } from 'date-fns';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { useEntriesStore } from '../../src/stores/entriesStore';
@@ -32,6 +33,7 @@ export default function HomeScreen() {
   const { isAuthenticated } = useAuthStore();
 
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -51,7 +53,20 @@ export default function HomeScreen() {
     }
   }, [members]);
 
+  useEffect(() => {
+    // Auto-select first section when member changes
+    if (selectedMemberId) {
+      const member = members.find(m => m.id === selectedMemberId);
+      if (member && member.sections.length > 0) {
+        setSelectedSectionId(member.sections[0].id);
+      } else {
+        setSelectedSectionId(null);
+      }
+    }
+  }, [selectedMemberId, members]);
+
   const selectedMember = members.find((m) => m.id === selectedMemberId);
+  const selectedSection = selectedMember?.sections.find((s) => s.id === selectedSectionId);
   const entry = selectedMemberId ? getEntry(selectedMemberId, currentDate) : undefined;
 
   const handleDateChange = (days: number) => {
@@ -59,6 +74,10 @@ export default function HomeScreen() {
       ? addDays(parseISO(currentDate), days)
       : subDays(parseISO(currentDate), Math.abs(days));
     setCurrentDate(format(newDate, 'yyyy-MM-dd'));
+  };
+
+  const goToToday = () => {
+    setCurrentDate(format(new Date(), 'yyyy-MM-dd'));
   };
 
   const getTaskValue = (sectionId: string, taskId: string): boolean | string | number | undefined => {
@@ -87,55 +106,98 @@ export default function HomeScreen() {
     }
   };
 
-  const renderTaskInput = (section: Section, task: Task) => {
-    const value = getTaskValue(section.id, task.id);
+  const getCompletionCount = (section: Section): { completed: number; total: number } => {
+    const checkboxTasks = section.tasks.filter(t => t.type === 'checkbox');
+    if (checkboxTasks.length === 0) return { completed: 0, total: 0 };
+
+    let completed = 0;
+    checkboxTasks.forEach(task => {
+      const value = getTaskValue(section.id, task.id);
+      if (value === true) completed++;
+    });
+
+    return { completed, total: checkboxTasks.length };
+  };
+
+  const renderTaskInput = (task: Task) => {
+    if (!selectedSectionId) return null;
+    const value = getTaskValue(selectedSectionId, task.id);
 
     switch (task.type) {
       case 'checkbox':
         return (
-          <View style={styles.taskRow} key={task.id}>
-            <Text variant="bodyMedium" style={styles.taskName}>{task.name}</Text>
-            <Switch
-              value={value === true}
-              onValueChange={(checked) => handleTaskChange(section.id, task.id, checked)}
-            />
-          </View>
+          <Surface key={task.id} style={styles.taskCard} elevation={1}>
+            <View style={styles.checkboxTask}>
+              <View style={styles.taskLabelRow}>
+                <MaterialCommunityIcons
+                  name={value === true ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'}
+                  size={24}
+                  color={value === true ? selectedMember?.color || theme.colors.primary : theme.colors.onSurfaceVariant}
+                />
+                <Text
+                  variant="bodyLarge"
+                  style={[
+                    styles.taskLabel,
+                    value === true && styles.taskCompleted
+                  ]}
+                >
+                  {task.name}
+                </Text>
+              </View>
+              <Switch
+                value={value === true}
+                onValueChange={(checked) => handleTaskChange(selectedSectionId, task.id, checked)}
+                color={selectedMember?.color}
+              />
+            </View>
+          </Surface>
         );
 
       case 'text':
         return (
-          <View style={styles.taskColumn} key={task.id}>
-            <Text variant="bodyMedium">{task.name}</Text>
+          <Surface key={task.id} style={styles.taskCard} elevation={1}>
+            <Text variant="labelLarge" style={styles.taskInputLabel}>{task.name}</Text>
             <TextInput
               value={(value as string) || ''}
-              onChangeText={(text) => handleTaskChange(section.id, task.id, text)}
+              onChangeText={(text) => handleTaskChange(selectedSectionId, task.id, text)}
               mode="outlined"
-              dense
+              placeholder="Enter text..."
               style={styles.textInput}
+              outlineColor={theme.colors.outline}
+              activeOutlineColor={selectedMember?.color}
             />
-          </View>
+          </Surface>
         );
 
       case 'numeric':
         return (
-          <View style={styles.taskRow} key={task.id}>
-            <Text variant="bodyMedium" style={styles.taskName}>
-              {task.name} {task.unit ? `(${task.unit})` : ''}
-            </Text>
-            <TextInput
-              value={value !== undefined ? String(value) : ''}
-              onChangeText={(text) => {
-                const num = parseFloat(text);
-                if (!isNaN(num) || text === '') {
-                  handleTaskChange(section.id, task.id, text === '' ? 0 : num);
-                }
-              }}
-              mode="outlined"
-              dense
-              keyboardType="numeric"
-              style={styles.numericInput}
-            />
-          </View>
+          <Surface key={task.id} style={styles.taskCard} elevation={1}>
+            <View style={styles.numericTask}>
+              <View style={styles.numericInfo}>
+                <Text variant="bodyLarge">{task.name}</Text>
+                {task.unit && (
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    ({task.unit})
+                  </Text>
+                )}
+              </View>
+              <TextInput
+                value={value !== undefined && value !== 0 ? String(value) : ''}
+                onChangeText={(text) => {
+                  const num = parseFloat(text);
+                  if (!isNaN(num) || text === '') {
+                    handleTaskChange(selectedSectionId, task.id, text === '' ? 0 : num);
+                  }
+                }}
+                mode="outlined"
+                keyboardType="numeric"
+                placeholder="0"
+                style={styles.numericInput}
+                outlineColor={theme.colors.outline}
+                activeOutlineColor={selectedMember?.color}
+              />
+            </View>
+          </Surface>
         );
 
       default:
@@ -154,13 +216,18 @@ export default function HomeScreen() {
   if (members.length === 0) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+        <MaterialCommunityIcons name="book-open-page-variant-outline" size={64} color={theme.colors.onSurfaceVariant} />
         <Text variant="headlineSmall" style={styles.emptyTitle}>Welcome to Our Journal!</Text>
         <Text variant="bodyMedium" style={styles.emptyText}>
           Get started by adding family members in Settings.
         </Text>
-        <Chip icon="cog" onPress={() => router.push('/(tabs)/settings')}>
-          Go to Settings
-        </Chip>
+        <Pressable
+          style={[styles.emptyButton, { backgroundColor: theme.colors.primary }]}
+          onPress={() => router.push('/(tabs)/settings')}
+        >
+          <MaterialCommunityIcons name="cog" size={20} color="#fff" />
+          <Text style={styles.emptyButtonText}>Go to Settings</Text>
+        </Pressable>
       </View>
     );
   }
@@ -168,87 +235,159 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Date Header */}
-      <Surface style={styles.dateHeader} elevation={1}>
-        <IconButton icon="chevron-left" onPress={() => handleDateChange(-1)} />
-        <Pressable onPress={() => setCurrentDate(format(new Date(), 'yyyy-MM-dd'))}>
-          <View style={styles.dateInfo}>
-            <Text variant="titleMedium">
-              {format(parseISO(currentDate), 'EEEE, MMM d, yyyy')}
+      <Surface style={styles.dateHeader} elevation={2}>
+        <IconButton icon="chevron-left" onPress={() => handleDateChange(-1)} size={28} />
+        <Pressable onPress={goToToday} style={styles.dateCenter}>
+          <Text variant="titleLarge" style={styles.dateText}>
+            {format(parseISO(currentDate), 'EEE, MMM d')}
+          </Text>
+          {isToday(parseISO(currentDate)) ? (
+            <View style={[styles.todayBadge, { backgroundColor: theme.colors.primary }]}>
+              <Text style={styles.todayText}>TODAY</Text>
+            </View>
+          ) : (
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+              {format(parseISO(currentDate), 'yyyy')}
             </Text>
-            {isToday(parseISO(currentDate)) && (
-              <Chip compact style={styles.todayChip}>Today</Chip>
-            )}
-          </View>
+          )}
         </Pressable>
-        <IconButton icon="chevron-right" onPress={() => handleDateChange(1)} />
+        <IconButton icon="chevron-right" onPress={() => handleDateChange(1)} size={28} />
       </Surface>
 
-      {/* Member Selector */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.memberSelector}
-        contentContainerStyle={styles.memberSelectorContent}
-      >
-        {members.map((member) => (
-          <Chip
-            key={member.id}
-            selected={selectedMemberId === member.id}
-            onPress={() => setSelectedMemberId(member.id)}
-            style={[
-              styles.memberChip,
-              selectedMemberId === member.id && { backgroundColor: member.color + '40' },
-            ]}
-            textStyle={selectedMemberId === member.id ? { color: member.color } : undefined}
-          >
-            {member.name}
-          </Chip>
-        ))}
-      </ScrollView>
+      {/* Member Tabs */}
+      <View style={styles.tabsContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsContent}
+        >
+          {members.map((member) => {
+            const isSelected = selectedMemberId === member.id;
+            return (
+              <Pressable
+                key={member.id}
+                onPress={() => setSelectedMemberId(member.id)}
+                style={[
+                  styles.memberTab,
+                  isSelected && { backgroundColor: member.color + '20', borderColor: member.color },
+                ]}
+              >
+                <View style={[styles.memberDot, { backgroundColor: member.color }]} />
+                <Text
+                  variant="labelLarge"
+                  style={[
+                    styles.memberTabText,
+                    isSelected && { color: member.color, fontWeight: '600' }
+                  ]}
+                >
+                  {member.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
 
-      {/* Sections and Tasks */}
+      {/* Section Tabs */}
+      {selectedMember && selectedMember.sections.length > 0 && (
+        <View style={styles.sectionTabsContainer}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.sectionTabsContent}
+          >
+            {selectedMember.sections.map((section) => {
+              const isSelected = selectedSectionId === section.id;
+              const { completed, total } = getCompletionCount(section);
+              return (
+                <Pressable
+                  key={section.id}
+                  onPress={() => setSelectedSectionId(section.id)}
+                  style={[
+                    styles.sectionTab,
+                    isSelected && {
+                      backgroundColor: selectedMember.color + '15',
+                      borderBottomColor: selectedMember.color,
+                      borderBottomWidth: 2,
+                    },
+                  ]}
+                >
+                  <Text
+                    variant="bodyMedium"
+                    style={[
+                      styles.sectionTabText,
+                      isSelected && { color: selectedMember.color, fontWeight: '600' }
+                    ]}
+                  >
+                    {section.name}
+                  </Text>
+                  {total > 0 && (
+                    <View style={[
+                      styles.completionBadge,
+                      { backgroundColor: completed === total ? selectedMember.color : theme.colors.surfaceVariant }
+                    ]}>
+                      <Text style={[
+                        styles.completionText,
+                        { color: completed === total ? '#fff' : theme.colors.onSurfaceVariant }
+                      ]}>
+                        {completed}/{total}
+                      </Text>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Content */}
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        {selectedMember?.sections.map((section) => (
-          <Card key={section.id} style={styles.sectionCard}>
-            <Card.Title
-              title={section.name}
-              titleStyle={{ color: selectedMember.color }}
-            />
-            <Card.Content>
-              {section.tasks.length === 0 ? (
-                <Text variant="bodySmall" style={styles.noTasks}>
+        {selectedMember?.sections.length === 0 && (
+          <Surface style={styles.emptySection} elevation={0}>
+            <MaterialCommunityIcons name="folder-plus-outline" size={48} color={theme.colors.onSurfaceVariant} />
+            <Text variant="titleMedium" style={styles.emptySectionTitle}>No sections yet</Text>
+            <Text variant="bodyMedium" style={styles.emptySectionText}>
+              Add sections for {selectedMember.name} in Settings
+            </Text>
+          </Surface>
+        )}
+
+        {selectedSection && (
+          <>
+            {/* Tasks */}
+            {selectedSection.tasks.length === 0 ? (
+              <Surface style={styles.emptyTasks} elevation={0}>
+                <MaterialCommunityIcons name="clipboard-text-outline" size={40} color={theme.colors.onSurfaceVariant} />
+                <Text variant="bodyMedium" style={styles.emptyTasksText}>
                   No tasks in this section
                 </Text>
-              ) : (
-                section.tasks.map((task) => renderTaskInput(section, task))
-              )}
-
-              {/* Notes */}
-              <View style={styles.notesContainer}>
-                <Text variant="labelMedium" style={styles.notesLabel}>Notes</Text>
-                <TextInput
-                  value={getSectionNotes(section.id)}
-                  onChangeText={(text) => handleNotesChange(section.id, text)}
-                  mode="outlined"
-                  multiline
-                  numberOfLines={3}
-                  placeholder="Add notes for this section..."
-                  style={styles.notesInput}
-                />
+              </Surface>
+            ) : (
+              <View style={styles.tasksList}>
+                {selectedSection.tasks.map((task) => renderTaskInput(task))}
               </View>
-            </Card.Content>
-          </Card>
-        ))}
+            )}
 
-        {selectedMember?.sections.length === 0 && (
-          <Card style={styles.sectionCard}>
-            <Card.Content>
-              <Text variant="bodyMedium" style={styles.noSections}>
-                No sections configured for {selectedMember.name}.{'\n'}
-                Add sections in Settings.
-              </Text>
-            </Card.Content>
-          </Card>
+            {/* Notes */}
+            <Surface style={styles.notesCard} elevation={1}>
+              <View style={styles.notesHeader}>
+                <MaterialCommunityIcons name="note-text-outline" size={20} color={selectedMember?.color} />
+                <Text variant="labelLarge" style={{ color: selectedMember?.color }}>Notes</Text>
+              </View>
+              <TextInput
+                value={getSectionNotes(selectedSection.id)}
+                onChangeText={(text) => handleNotesChange(selectedSection.id, text)}
+                mode="outlined"
+                multiline
+                numberOfLines={4}
+                placeholder="Add notes for today..."
+                style={styles.notesInput}
+                outlineColor={theme.colors.outline}
+                activeOutlineColor={selectedMember?.color}
+              />
+            </Surface>
+          </>
         )}
       </ScrollView>
     </View>
@@ -266,7 +405,8 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   emptyTitle: {
-    marginBottom: 12,
+    marginTop: 16,
+    marginBottom: 8,
     textAlign: 'center',
   },
   emptyText: {
@@ -274,31 +414,99 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.7,
   },
+  emptyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  emptyButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
+  },
   dateHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  dateInfo: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  todayChip: {
-    height: 24,
-  },
-  memberSelector: {
-    maxHeight: 56,
-  },
-  memberSelectorContent: {
-    paddingHorizontal: 12,
     paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  dateCenter: {
+    alignItems: 'center',
+  },
+  dateText: {
+    fontWeight: '600',
+  },
+  todayBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginTop: 4,
+  },
+  todayText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  tabsContainer: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.08)',
+  },
+  tabsContent: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     gap: 8,
   },
-  memberChip: {
-    marginRight: 4,
+  memberTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.12)',
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  memberDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  memberTabText: {
+    color: '#666',
+  },
+  sectionTabsContainer: {
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  sectionTabsContent: {
+    paddingHorizontal: 12,
+    gap: 4,
+  },
+  sectionTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  sectionTabText: {
+    color: '#666',
+  },
+  completionBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  completionText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   content: {
     flex: 1,
@@ -307,49 +515,88 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 32,
   },
-  sectionCard: {
-    marginBottom: 16,
+  emptySection: {
+    alignItems: 'center',
+    padding: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.02)',
   },
-  taskRow: {
+  emptySectionTitle: {
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  emptySectionText: {
+    opacity: 0.6,
+    textAlign: 'center',
+  },
+  emptyTasks: {
+    alignItems: 'center',
+    padding: 32,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  emptyTasksText: {
+    marginTop: 12,
+    opacity: 0.6,
+  },
+  tasksList: {
+    gap: 10,
+  },
+  taskCard: {
+    padding: 16,
+    borderRadius: 12,
+  },
+  checkboxTask: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 8,
   },
-  taskColumn: {
-    paddingVertical: 8,
-  },
-  taskName: {
+  taskLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     flex: 1,
-    marginRight: 16,
   },
-  textInput: {
-    marginTop: 4,
+  taskLabel: {
+    flex: 1,
   },
-  numericInput: {
-    width: 80,
-    textAlign: 'center',
-  },
-  noTasks: {
-    fontStyle: 'italic',
+  taskCompleted: {
     opacity: 0.6,
-    paddingVertical: 8,
+    textDecorationLine: 'line-through',
   },
-  noSections: {
-    textAlign: 'center',
-    opacity: 0.7,
-    paddingVertical: 16,
-  },
-  notesContainer: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.1)',
-  },
-  notesLabel: {
+  taskInputLabel: {
     marginBottom: 8,
   },
+  textInput: {
+    backgroundColor: 'transparent',
+  },
+  numericTask: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  numericInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  numericInput: {
+    width: 100,
+    textAlign: 'center',
+    backgroundColor: 'transparent',
+  },
+  notesCard: {
+    marginTop: 20,
+    padding: 16,
+    borderRadius: 12,
+  },
+  notesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
   notesInput: {
-    minHeight: 80,
+    backgroundColor: 'transparent',
+    minHeight: 100,
   },
 });

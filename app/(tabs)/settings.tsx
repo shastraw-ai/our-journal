@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import {
   Text,
   Button,
@@ -9,15 +9,18 @@ import {
   Modal,
   TextInput,
   useTheme,
-  List,
   Chip,
   SegmentedButtons,
   FAB,
   Divider,
+  Surface,
+  Avatar,
 } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { useAuthStore } from '../../src/stores/authStore';
-import { TaskType } from '../../src/types';
+import { TaskType, FamilyMember, Section } from '../../src/types';
+import { router } from 'expo-router';
 
 const COLORS = [
   '#E53935', '#D81B60', '#8E24AA', '#5E35B1',
@@ -49,13 +52,20 @@ export default function SettingsScreen() {
   const [taskType, setTaskType] = useState<TaskType>('checkbox');
   const [taskUnit, setTaskUnit] = useState('');
 
-  // Expanded sections
-  const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  // Expanded states
+  const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
+  const [expandedSectionId, setExpandedSectionId] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
   }, []);
+
+  // Auto-expand first member if exists
+  useEffect(() => {
+    if (members.length > 0 && !expandedMemberId) {
+      setExpandedMemberId(members[0].id);
+    }
+  }, [members]);
 
   // Member handlers
   const openMemberModal = (memberId?: string) => {
@@ -80,8 +90,32 @@ export default function SettingsScreen() {
       updateMember(editingMember, { name: memberName.trim(), color: memberColor });
     } else {
       addMember(memberName.trim(), memberColor);
+      // Auto-expand the newly added member (it will be the last one)
+      setTimeout(() => {
+        const newMember = members[members.length];
+        if (newMember) {
+          setExpandedMemberId(newMember.id);
+        }
+      }, 100);
     }
     setMemberModalVisible(false);
+  };
+
+  // After adding member, expand it
+  const handleAddMember = () => {
+    if (!memberName.trim()) return;
+    const prevLength = members.length;
+    addMember(memberName.trim(), memberColor);
+    setMemberModalVisible(false);
+    // Expand the new member after state updates
+    setTimeout(() => {
+      const store = useSettingsStore.getState();
+      if (store.members.length > prevLength) {
+        const newMember = store.members[store.members.length - 1];
+        setExpandedMemberId(newMember.id);
+        setExpandedSectionId(null);
+      }
+    }, 50);
   };
 
   // Section handlers
@@ -100,14 +134,30 @@ export default function SettingsScreen() {
     setSectionModalVisible(true);
   };
 
-  const saveSection = () => {
+  const handleAddSection = () => {
     if (!editingSection || !sectionName.trim()) return;
+    const memberId = editingSection.memberId;
+    const member = members.find(m => m.id === memberId);
+    const prevSectionCount = member?.sections.length || 0;
+
     if (editingSection.sectionId) {
       updateSection(editingSection.memberId, editingSection.sectionId, sectionName.trim());
     } else {
       addSection(editingSection.memberId, sectionName.trim());
     }
     setSectionModalVisible(false);
+
+    // Auto-expand the new section
+    if (!editingSection.sectionId) {
+      setTimeout(() => {
+        const store = useSettingsStore.getState();
+        const updatedMember = store.members.find(m => m.id === memberId);
+        if (updatedMember && updatedMember.sections.length > prevSectionCount) {
+          const newSection = updatedMember.sections[updatedMember.sections.length - 1];
+          setExpandedSectionId(newSection.id);
+        }
+      }, 50);
+    }
   };
 
   // Task handlers
@@ -146,132 +196,221 @@ export default function SettingsScreen() {
     setTaskModalVisible(false);
   };
 
-  const toggleMemberExpanded = (memberId: string) => {
-    const newSet = new Set(expandedMembers);
-    if (newSet.has(memberId)) {
-      newSet.delete(memberId);
-    } else {
-      newSet.add(memberId);
-    }
-    setExpandedMembers(newSet);
+  const handleLogout = () => {
+    logout();
+    router.replace('/auth');
   };
 
-  const toggleSectionExpanded = (sectionId: string) => {
-    const newSet = new Set(expandedSections);
-    if (newSet.has(sectionId)) {
-      newSet.delete(sectionId);
-    } else {
-      newSet.add(sectionId);
+  const getTaskTypeIcon = (type: TaskType) => {
+    switch (type) {
+      case 'checkbox': return 'checkbox-marked-outline';
+      case 'text': return 'text';
+      case 'numeric': return 'numeric';
     }
-    setExpandedSections(newSet);
+  };
+
+  const renderMember = (member: FamilyMember) => {
+    const isExpanded = expandedMemberId === member.id;
+
+    return (
+      <Card key={member.id} style={[styles.memberCard, { borderLeftColor: member.color, borderLeftWidth: 4 }]}>
+        <Pressable onPress={() => setExpandedMemberId(isExpanded ? null : member.id)}>
+          <View style={styles.memberHeader}>
+            <View style={styles.memberInfo}>
+              <Avatar.Text
+                size={40}
+                label={member.name.charAt(0).toUpperCase()}
+                style={{ backgroundColor: member.color }}
+              />
+              <View style={styles.memberText}>
+                <Text variant="titleMedium">{member.name}</Text>
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  {member.sections.length} section{member.sections.length !== 1 ? 's' : ''}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.memberActions}>
+              <IconButton icon="pencil" size={20} onPress={() => openMemberModal(member.id)} />
+              <IconButton icon="delete-outline" size={20} onPress={() => deleteMember(member.id)} />
+              <MaterialCommunityIcons
+                name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                size={24}
+                color={theme.colors.onSurfaceVariant}
+              />
+            </View>
+          </View>
+        </Pressable>
+
+        {isExpanded && (
+          <View style={styles.memberContent}>
+            <Divider style={styles.divider} />
+
+            {/* Sections */}
+            <View style={styles.sectionsList}>
+              <View style={styles.sectionHeader}>
+                <Text variant="labelLarge" style={{ color: theme.colors.primary }}>SECTIONS</Text>
+                <Button
+                  mode="text"
+                  compact
+                  icon="plus"
+                  onPress={() => openSectionModal(member.id)}
+                >
+                  Add Section
+                </Button>
+              </View>
+
+              {member.sections.length === 0 ? (
+                <Surface style={styles.emptyState} elevation={0}>
+                  <MaterialCommunityIcons name="folder-plus-outline" size={32} color={theme.colors.onSurfaceVariant} />
+                  <Text variant="bodyMedium" style={styles.emptyText}>No sections yet</Text>
+                  <Text variant="bodySmall" style={styles.emptyHint}>Add sections to organize tasks</Text>
+                </Surface>
+              ) : (
+                member.sections.map((section) => renderSection(member, section))
+              )}
+            </View>
+          </View>
+        )}
+      </Card>
+    );
+  };
+
+  const renderSection = (member: FamilyMember, section: Section) => {
+    const isExpanded = expandedSectionId === section.id;
+
+    return (
+      <Surface key={section.id} style={styles.sectionCard} elevation={1}>
+        <Pressable onPress={() => setExpandedSectionId(isExpanded ? null : section.id)}>
+          <View style={styles.sectionRow}>
+            <View style={styles.sectionInfo}>
+              <MaterialCommunityIcons name="folder-outline" size={20} color={member.color} />
+              <Text variant="titleSmall" style={styles.sectionName}>{section.name}</Text>
+              <Chip compact style={styles.taskCountChip} textStyle={styles.chipText}>
+                {section.tasks.length} task{section.tasks.length !== 1 ? 's' : ''}
+              </Chip>
+            </View>
+            <View style={styles.sectionActions}>
+              <IconButton icon="pencil" size={18} onPress={() => openSectionModal(member.id, section.id)} />
+              <IconButton icon="delete-outline" size={18} onPress={() => deleteSection(member.id, section.id)} />
+              <MaterialCommunityIcons
+                name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                size={20}
+                color={theme.colors.onSurfaceVariant}
+              />
+            </View>
+          </View>
+        </Pressable>
+
+        {isExpanded && (
+          <View style={styles.tasksContainer}>
+            <Divider style={styles.taskDivider} />
+
+            <View style={styles.tasksHeader}>
+              <Text variant="labelMedium" style={{ color: theme.colors.secondary }}>TASKS</Text>
+              <Button
+                mode="text"
+                compact
+                icon="plus"
+                onPress={() => openTaskModal(member.id, section.id)}
+              >
+                Add Task
+              </Button>
+            </View>
+
+            {section.tasks.length === 0 ? (
+              <View style={styles.emptyTaskState}>
+                <Text variant="bodySmall" style={styles.emptyHint}>
+                  Add daily tasks to track
+                </Text>
+              </View>
+            ) : (
+              section.tasks.map((task) => (
+                <View key={task.id} style={styles.taskRow}>
+                  <View style={styles.taskInfo}>
+                    <MaterialCommunityIcons
+                      name={getTaskTypeIcon(task.type)}
+                      size={18}
+                      color={theme.colors.onSurfaceVariant}
+                    />
+                    <Text variant="bodyMedium" style={styles.taskName}>{task.name}</Text>
+                    {task.unit && (
+                      <Chip compact style={styles.unitChip} textStyle={styles.chipText}>{task.unit}</Chip>
+                    )}
+                  </View>
+                  <View style={styles.taskActions}>
+                    <IconButton
+                      icon="pencil"
+                      size={16}
+                      onPress={() => openTaskModal(member.id, section.id, task.id)}
+                    />
+                    <IconButton
+                      icon="delete-outline"
+                      size={16}
+                      onPress={() => deleteTask(member.id, section.id, task.id)}
+                    />
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+      </Surface>
+    );
   };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Account Section */}
-        <Card style={styles.card}>
-          <Card.Title title="Account" />
-          <Card.Content>
-            <Text variant="bodyMedium">
-              {isGuest ? 'Guest Mode (local storage only)' : userEmail}
-            </Text>
-          </Card.Content>
-          <Card.Actions>
-            <Button onPress={logout}>Sign Out</Button>
-          </Card.Actions>
+        {/* Account Card */}
+        <Card style={styles.accountCard}>
+          <View style={styles.accountContent}>
+            <View style={styles.accountInfo}>
+              <MaterialCommunityIcons
+                name={isGuest ? 'account-outline' : 'google'}
+                size={24}
+                color={theme.colors.primary}
+              />
+              <View>
+                <Text variant="titleSmall">
+                  {isGuest ? 'Guest Mode' : userEmail}
+                </Text>
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  {isGuest ? 'Data stored locally only' : 'Synced with Google Drive'}
+                </Text>
+              </View>
+            </View>
+            <Button mode="outlined" compact onPress={handleLogout}>
+              Sign Out
+            </Button>
+          </View>
         </Card>
 
         {/* Members Section */}
-        <Card style={styles.card}>
-          <Card.Title
-            title="Family Members"
-            right={(props) => (
-              <IconButton {...props} icon="plus" onPress={() => openMemberModal()} />
-            )}
-          />
-          <Card.Content>
-            {members.length === 0 ? (
-              <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-                No members added yet. Tap + to add a family member.
-              </Text>
-            ) : (
-              members.map((member) => (
-                <View key={member.id}>
-                  <List.Accordion
-                    title={member.name}
-                    expanded={expandedMembers.has(member.id)}
-                    onPress={() => toggleMemberExpanded(member.id)}
-                    left={(props) => (
-                      <View style={[styles.colorDot, { backgroundColor: member.color }]} />
-                    )}
-                    right={(props) => (
-                      <View style={styles.rowActions}>
-                        <IconButton icon="pencil" size={20} onPress={() => openMemberModal(member.id)} />
-                        <IconButton icon="delete" size={20} onPress={() => deleteMember(member.id)} />
-                      </View>
-                    )}
-                  >
-                    {/* Sections */}
-                    <View style={styles.sectionContainer}>
-                      <View style={styles.sectionHeader}>
-                        <Text variant="labelLarge">Sections</Text>
-                        <IconButton icon="plus" size={18} onPress={() => openSectionModal(member.id)} />
-                      </View>
-                      {member.sections.length === 0 ? (
-                        <Text variant="bodySmall" style={styles.emptyText}>No sections</Text>
-                      ) : (
-                        member.sections.map((section) => (
-                          <View key={section.id}>
-                            <List.Accordion
-                              title={section.name}
-                              expanded={expandedSections.has(section.id)}
-                              onPress={() => toggleSectionExpanded(section.id)}
-                              style={styles.nestedAccordion}
-                              right={() => (
-                                <View style={styles.rowActions}>
-                                  <IconButton icon="pencil" size={18} onPress={() => openSectionModal(member.id, section.id)} />
-                                  <IconButton icon="delete" size={18} onPress={() => deleteSection(member.id, section.id)} />
-                                </View>
-                              )}
-                            >
-                              {/* Tasks */}
-                              <View style={styles.taskContainer}>
-                                <View style={styles.sectionHeader}>
-                                  <Text variant="labelMedium">Tasks</Text>
-                                  <IconButton icon="plus" size={16} onPress={() => openTaskModal(member.id, section.id)} />
-                                </View>
-                                {section.tasks.length === 0 ? (
-                                  <Text variant="bodySmall" style={styles.emptyText}>No tasks</Text>
-                                ) : (
-                                  section.tasks.map((task) => (
-                                    <View key={task.id} style={styles.taskItem}>
-                                      <View style={styles.taskInfo}>
-                                        <Text variant="bodyMedium">{task.name}</Text>
-                                        <Chip compact style={styles.typeChip}>
-                                          {task.type}{task.unit ? ` (${task.unit})` : ''}
-                                        </Chip>
-                                      </View>
-                                      <View style={styles.rowActions}>
-                                        <IconButton icon="pencil" size={16} onPress={() => openTaskModal(member.id, section.id, task.id)} />
-                                        <IconButton icon="delete" size={16} onPress={() => deleteTask(member.id, section.id, task.id)} />
-                                      </View>
-                                    </View>
-                                  ))
-                                )}
-                              </View>
-                            </List.Accordion>
-                          </View>
-                        ))
-                      )}
-                    </View>
-                  </List.Accordion>
-                  <Divider />
-                </View>
-              ))
-            )}
-          </Card.Content>
-        </Card>
+        <View style={styles.membersSection}>
+          <View style={styles.membersHeader}>
+            <Text variant="titleLarge">Family Members</Text>
+            <Button mode="contained" icon="plus" onPress={() => openMemberModal()}>
+              Add Member
+            </Button>
+          </View>
+
+          {members.length === 0 ? (
+            <Card style={styles.emptyCard}>
+              <Card.Content style={styles.emptyCardContent}>
+                <MaterialCommunityIcons name="account-group-outline" size={48} color={theme.colors.onSurfaceVariant} />
+                <Text variant="titleMedium" style={styles.emptyTitle}>No family members yet</Text>
+                <Text variant="bodyMedium" style={styles.emptyDescription}>
+                  Add family members to start tracking their daily activities and journal entries.
+                </Text>
+                <Button mode="contained" icon="plus" onPress={() => openMemberModal()} style={styles.emptyButton}>
+                  Add Your First Member
+                </Button>
+              </Card.Content>
+            </Card>
+          ) : (
+            members.map(renderMember)
+          )}
+        </View>
       </ScrollView>
 
       {/* Member Modal */}
@@ -281,30 +420,43 @@ export default function SettingsScreen() {
           onDismiss={() => setMemberModalVisible(false)}
           contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
         >
-          <Text variant="titleLarge" style={styles.modalTitle}>
-            {editingMember ? 'Edit Member' : 'Add Member'}
+          <Text variant="headlineSmall" style={styles.modalTitle}>
+            {editingMember ? 'Edit Member' : 'Add Family Member'}
           </Text>
+
           <TextInput
             label="Name"
             value={memberName}
             onChangeText={setMemberName}
             style={styles.input}
+            mode="outlined"
+            autoFocus
           />
-          <Text variant="labelMedium" style={styles.colorLabel}>Color</Text>
-          <View style={styles.colorPicker}>
+
+          <Text variant="labelLarge" style={styles.colorLabel}>Choose Color</Text>
+          <View style={styles.colorGrid}>
             {COLORS.map((color) => (
-              <IconButton
+              <Pressable
                 key={color}
-                icon={memberColor === color ? 'check-circle' : 'circle'}
-                iconColor={color}
-                size={32}
                 onPress={() => setMemberColor(color)}
-              />
+                style={[
+                  styles.colorOption,
+                  { backgroundColor: color },
+                  memberColor === color && styles.colorOptionSelected,
+                ]}
+              >
+                {memberColor === color && (
+                  <MaterialCommunityIcons name="check" size={20} color="white" />
+                )}
+              </Pressable>
             ))}
           </View>
+
           <View style={styles.modalActions}>
             <Button onPress={() => setMemberModalVisible(false)}>Cancel</Button>
-            <Button mode="contained" onPress={saveMember}>Save</Button>
+            <Button mode="contained" onPress={editingMember ? saveMember : handleAddMember}>
+              {editingMember ? 'Save' : 'Add Member'}
+            </Button>
           </View>
         </Modal>
       </Portal>
@@ -316,18 +468,25 @@ export default function SettingsScreen() {
           onDismiss={() => setSectionModalVisible(false)}
           contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
         >
-          <Text variant="titleLarge" style={styles.modalTitle}>
+          <Text variant="headlineSmall" style={styles.modalTitle}>
             {editingSection?.sectionId ? 'Edit Section' : 'Add Section'}
           </Text>
+
           <TextInput
             label="Section Name"
             value={sectionName}
             onChangeText={setSectionName}
+            placeholder="e.g., Morning Routine, Health, Learning"
             style={styles.input}
+            mode="outlined"
+            autoFocus
           />
+
           <View style={styles.modalActions}>
             <Button onPress={() => setSectionModalVisible(false)}>Cancel</Button>
-            <Button mode="contained" onPress={saveSection}>Save</Button>
+            <Button mode="contained" onPress={handleAddSection}>
+              {editingSection?.sectionId ? 'Save' : 'Add Section'}
+            </Button>
           </View>
         </Modal>
       </Portal>
@@ -339,26 +498,32 @@ export default function SettingsScreen() {
           onDismiss={() => setTaskModalVisible(false)}
           contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
         >
-          <Text variant="titleLarge" style={styles.modalTitle}>
+          <Text variant="headlineSmall" style={styles.modalTitle}>
             {editingTask?.taskId ? 'Edit Task' : 'Add Task'}
           </Text>
+
           <TextInput
             label="Task Name"
             value={taskName}
             onChangeText={setTaskName}
+            placeholder="e.g., Brushed teeth, Read for 30 min"
             style={styles.input}
+            mode="outlined"
+            autoFocus
           />
-          <Text variant="labelMedium" style={styles.typeLabel}>Type</Text>
+
+          <Text variant="labelLarge" style={styles.typeLabel}>Task Type</Text>
           <SegmentedButtons
             value={taskType}
             onValueChange={(value) => setTaskType(value as TaskType)}
             buttons={[
-              { value: 'checkbox', label: 'Checkbox' },
-              { value: 'text', label: 'Text' },
-              { value: 'numeric', label: 'Numeric' },
+              { value: 'checkbox', label: 'Yes/No', icon: 'checkbox-marked-outline' },
+              { value: 'text', label: 'Text', icon: 'text' },
+              { value: 'numeric', label: 'Number', icon: 'numeric' },
             ]}
             style={styles.segmentedButtons}
           />
+
           {taskType === 'numeric' && (
             <TextInput
               label="Unit (optional)"
@@ -366,11 +531,15 @@ export default function SettingsScreen() {
               onChangeText={setTaskUnit}
               placeholder="e.g., minutes, glasses, pages"
               style={styles.input}
+              mode="outlined"
             />
           )}
+
           <View style={styles.modalActions}>
             <Button onPress={() => setTaskModalVisible(false)}>Cancel</Button>
-            <Button mode="contained" onPress={saveTask}>Save</Button>
+            <Button mode="contained" onPress={saveTask}>
+              {editingTask?.taskId ? 'Save' : 'Add Task'}
+            </Button>
           </View>
         </Modal>
       </Portal>
@@ -384,76 +553,213 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+    paddingBottom: 32,
   },
-  card: {
-    marginBottom: 16,
+  accountCard: {
+    marginBottom: 20,
   },
-  colorDot: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    marginLeft: 8,
-  },
-  rowActions: {
+  accountContent: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
   },
-  sectionContainer: {
-    paddingLeft: 16,
-    paddingBottom: 8,
+  accountInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  membersSection: {
+    gap: 12,
+  },
+  membersHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  memberCard: {
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  memberHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+  },
+  memberInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  memberText: {
+    gap: 2,
+  },
+  memberActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  memberContent: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
+  divider: {
+    marginBottom: 12,
+  },
+  sectionsList: {
+    gap: 8,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginBottom: 8,
   },
-  nestedAccordion: {
-    paddingLeft: 8,
+  sectionCard: {
+    borderRadius: 8,
+    marginBottom: 8,
+    overflow: 'hidden',
   },
-  taskContainer: {
-    paddingLeft: 16,
-    paddingBottom: 8,
-  },
-  taskItem: {
+  sectionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+    padding: 12,
   },
-  taskInfo: {
-    flex: 1,
+  sectionInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flex: 1,
   },
-  typeChip: {
+  sectionName: {
+    flex: 1,
+  },
+  sectionActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  taskCountChip: {
     height: 24,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+  },
+  chipText: {
+    fontSize: 12,
+    color: '#333',
+  },
+  tasksContainer: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
+  taskDivider: {
+    marginBottom: 8,
+  },
+  tasksHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  taskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  taskInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  taskName: {
+    flex: 1,
+  },
+  taskActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  unitChip: {
+    height: 22,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+  },
+  emptyState: {
+    alignItems: 'center',
+    padding: 24,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.03)',
+  },
+  emptyTaskState: {
+    alignItems: 'center',
+    padding: 16,
   },
   emptyText: {
-    fontStyle: 'italic',
-    opacity: 0.6,
-    paddingVertical: 8,
+    marginTop: 8,
+    opacity: 0.7,
+  },
+  emptyHint: {
+    opacity: 0.5,
+    textAlign: 'center',
+  },
+  emptyCard: {
+    marginTop: 8,
+  },
+  emptyCardContent: {
+    alignItems: 'center',
+    padding: 32,
+  },
+  emptyTitle: {
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyDescription: {
+    textAlign: 'center',
+    opacity: 0.7,
+    marginBottom: 24,
+  },
+  emptyButton: {
+    marginTop: 8,
   },
   modal: {
     margin: 20,
-    padding: 20,
-    borderRadius: 8,
+    padding: 24,
+    borderRadius: 16,
   },
   modalTitle: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   input: {
     marginBottom: 16,
   },
   colorLabel: {
-    marginBottom: 8,
+    marginBottom: 12,
   },
-  colorPicker: {
+  colorGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 16,
+    gap: 10,
+    marginBottom: 24,
+  },
+  colorOption: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  colorOptionSelected: {
+    borderWidth: 3,
+    borderColor: 'white',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
   },
   typeLabel: {
-    marginBottom: 8,
+    marginBottom: 12,
   },
   segmentedButtons: {
     marginBottom: 16,
@@ -461,6 +767,7 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 8,
+    gap: 12,
+    marginTop: 8,
   },
 });
