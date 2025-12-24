@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "Our Journal",
+    "slug": "our-journal",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "scheme": "ourjournal",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#6200ee"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ai.shastraw.ourjournal",
+      "usesAppleSignIn": false
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#6200ee"
+      },
+      "package": "ai.shastraw.ourjournal",
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": ""
+      },
+      "googleClientId": {
+        "web": "698202477776-pjlvo5jio8ul7d1ntr7lcra8at6a41en.apps.googleusercontent.com",
+        "ios": "698202477776-k4elnnt44dhh8ib6uinre1p8aivsuhvm.apps.googleusercontent.com",
+        "android": "698202477776-7v6mcvbcppti9julrbuv7tl5j0qbbj0g.apps.googleusercontent.com"
+      }
+    }
+  }
+}
