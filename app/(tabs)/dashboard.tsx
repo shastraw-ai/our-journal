@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Dimensions } from 'react-native';
+import { View, StyleSheet, ScrollView, Dimensions, Pressable } from 'react-native';
 import {
   Text,
   Card,
@@ -8,15 +8,23 @@ import {
   SegmentedButtons,
   Surface,
 } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LineChart, BarChart } from 'react-native-chart-kit';
-import { format, subDays, parseISO } from 'date-fns';
+import { format, subDays, subMonths, subYears, parseISO } from 'date-fns';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { useEntriesStore } from '../../src/stores/entriesStore';
 import { FamilyMember, Section, Task, DailyEntry } from '../../src/types';
 
 const screenWidth = Dimensions.get('window').width;
 
-type DateRange = '7' | '14' | '30';
+type DateRange = '7' | '30' | '90' | '365';
+
+const DATE_RANGE_OPTIONS = [
+  { value: '7', label: 'Week', icon: 'calendar-week' },
+  { value: '30', label: 'Month', icon: 'calendar-month' },
+  { value: '90', label: '3 Months', icon: 'calendar-range' },
+  { value: '365', label: 'Year', icon: 'calendar' },
+];
 
 export default function DashboardScreen() {
   const theme = useTheme();
@@ -29,11 +37,15 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     loadSettings();
-    // Load entries for current and previous months
+    // Load entries for current and previous months based on date range
     const today = new Date();
-    loadEntriesForMonth(format(today, 'yyyy-MM'));
-    loadEntriesForMonth(format(subDays(today, 30), 'yyyy-MM'));
-  }, []);
+    const months = new Set<string>();
+    const daysToLoad = parseInt(dateRange);
+    for (let i = 0; i <= daysToLoad; i += 15) {
+      months.add(format(subDays(today, i), 'yyyy-MM'));
+    }
+    months.forEach((month) => loadEntriesForMonth(month));
+  }, [dateRange]);
 
   useEffect(() => {
     if (members.length > 0 && !selectedMemberId) {
@@ -184,63 +196,118 @@ export default function DashboardScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {/* Member Selector */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.selector}
-        contentContainerStyle={styles.selectorContent}
-      >
-        {members.map((member) => (
-          <Chip
-            key={member.id}
-            selected={selectedMemberId === member.id}
-            onPress={() => setSelectedMemberId(member.id)}
-            style={[
-              styles.chip,
-              selectedMemberId === member.id && { backgroundColor: member.color + '40' },
-            ]}
-            textStyle={selectedMemberId === member.id ? { color: member.color } : undefined}
-          >
-            {member.name}
-          </Chip>
-        ))}
-      </ScrollView>
-
-      {/* Section Selector */}
-      {selectedMember && selectedMember.sections.length > 0 && (
+      {/* Member Tabs */}
+      <View style={styles.tabsContainer}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={styles.selector}
-          contentContainerStyle={styles.selectorContent}
+          contentContainerStyle={styles.tabsContent}
         >
-          {selectedMember.sections.map((section) => (
-            <Chip
-              key={section.id}
-              selected={selectedSectionId === section.id}
-              onPress={() => setSelectedSectionId(section.id)}
-              style={styles.chip}
-              mode={selectedSectionId === section.id ? 'flat' : 'outlined'}
-            >
-              {section.name}
-            </Chip>
-          ))}
+          {members.map((member) => {
+            const isSelected = selectedMemberId === member.id;
+            return (
+              <Pressable
+                key={member.id}
+                onPress={() => setSelectedMemberId(member.id)}
+                style={[
+                  styles.memberTab,
+                  isSelected && { backgroundColor: member.color + '20', borderColor: member.color },
+                ]}
+              >
+                <View style={[styles.memberDot, { backgroundColor: member.color }]} />
+                <Text
+                  variant="labelLarge"
+                  style={[
+                    styles.memberTabText,
+                    isSelected && { color: member.color, fontWeight: '600' }
+                  ]}
+                >
+                  {member.name}
+                </Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
+      </View>
+
+      {/* Section Tabs */}
+      {selectedMember && selectedMember.sections.length > 0 && (
+        <View style={styles.sectionTabsContainer}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.sectionTabsContent}
+          >
+            {selectedMember.sections.map((section) => {
+              const isSelected = selectedSectionId === section.id;
+              return (
+                <Pressable
+                  key={section.id}
+                  onPress={() => setSelectedSectionId(section.id)}
+                  style={[
+                    styles.sectionTab,
+                    isSelected && {
+                      backgroundColor: selectedMember.color + '15',
+                      borderBottomColor: selectedMember.color,
+                      borderBottomWidth: 2,
+                    },
+                  ]}
+                >
+                  <Text
+                    variant="bodyMedium"
+                    style={[
+                      styles.sectionTabText,
+                      isSelected && { color: selectedMember.color, fontWeight: '600' }
+                    ]}
+                  >
+                    {section.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
       )}
 
       {/* Date Range Selector */}
       <View style={styles.dateRangeContainer}>
-        <SegmentedButtons
-          value={dateRange}
-          onValueChange={(value) => setDateRange(value as DateRange)}
-          buttons={[
-            { value: '7', label: '7 Days' },
-            { value: '14', label: '14 Days' },
-            { value: '30', label: '30 Days' },
-          ]}
-          style={styles.segmentedButtons}
-        />
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.dateRangeContent}
+        >
+          {DATE_RANGE_OPTIONS.map((option) => {
+            const isSelected = dateRange === option.value;
+            return (
+              <Pressable
+                key={option.value}
+                onPress={() => setDateRange(option.value as DateRange)}
+                style={[
+                  styles.dateRangeTab,
+                  isSelected && {
+                    backgroundColor: (selectedMember?.color || theme.colors.primary) + '20',
+                    borderColor: selectedMember?.color || theme.colors.primary,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={option.icon as any}
+                  size={18}
+                  color={isSelected ? selectedMember?.color || theme.colors.primary : theme.colors.onSurfaceVariant}
+                />
+                <Text
+                  variant="labelMedium"
+                  style={[
+                    styles.dateRangeText,
+                    isSelected && { color: selectedMember?.color || theme.colors.primary, fontWeight: '600' }
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
@@ -359,24 +426,75 @@ const styles = StyleSheet.create({
     marginTop: 8,
     opacity: 0.7,
   },
-  selector: {
-    maxHeight: 56,
+  tabsContainer: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.08)',
   },
-  selectorContent: {
+  tabsContent: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     gap: 8,
   },
-  chip: {
-    marginRight: 4,
+  memberTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.12)',
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  memberDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  memberTabText: {
+    color: '#666',
+  },
+  sectionTabsContainer: {
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  sectionTabsContent: {
+    paddingHorizontal: 12,
+    gap: 4,
+  },
+  sectionTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  sectionTabText: {
+    color: '#666',
   },
   dateRangeContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.08)',
   },
-  segmentedButtons: {
-    maxWidth: 300,
-    alignSelf: 'center',
+  dateRangeContent: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  dateRangeTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.12)',
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  dateRangeText: {
+    color: '#666',
   },
   content: {
     flex: 1,

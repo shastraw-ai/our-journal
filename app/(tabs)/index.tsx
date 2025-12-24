@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import {
   Text,
   Card,
@@ -13,6 +13,7 @@ import {
 } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { format, addDays, subDays, parseISO, isToday } from 'date-fns';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { useEntriesStore } from '../../src/stores/entriesStore';
 import { useAuthStore } from '../../src/stores/authStore';
@@ -34,6 +35,7 @@ export default function HomeScreen() {
 
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -78,6 +80,17 @@ export default function HomeScreen() {
 
   const goToToday = () => {
     setCurrentDate(format(new Date(), 'yyyy-MM-dd'));
+  };
+
+  const handleDatePickerChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
+    setShowDatePicker(Platform.OS === 'ios');
+    if (selectedDate) {
+      setCurrentDate(format(selectedDate, 'yyyy-MM-dd'));
+    }
+  };
+
+  const openDatePicker = () => {
+    setShowDatePicker(true);
   };
 
   const getTaskValue = (sectionId: string, taskId: string): boolean | string | number | undefined => {
@@ -237,22 +250,37 @@ export default function HomeScreen() {
       {/* Date Header */}
       <Surface style={styles.dateHeader} elevation={2}>
         <IconButton icon="chevron-left" onPress={() => handleDateChange(-1)} size={28} />
-        <Pressable onPress={goToToday} style={styles.dateCenter}>
-          <Text variant="titleLarge" style={styles.dateText}>
-            {format(parseISO(currentDate), 'EEE, MMM d')}
-          </Text>
+        <Pressable onPress={openDatePicker} style={styles.dateCenter}>
+          <View style={styles.dateTouchable}>
+            <MaterialCommunityIcons name="calendar" size={20} color={theme.colors.primary} />
+            <Text variant="titleLarge" style={styles.dateText}>
+              {format(parseISO(currentDate), 'EEE, MMM d')}
+            </Text>
+          </View>
           {isToday(parseISO(currentDate)) ? (
             <View style={[styles.todayBadge, { backgroundColor: theme.colors.primary }]}>
               <Text style={styles.todayText}>TODAY</Text>
             </View>
           ) : (
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              {format(parseISO(currentDate), 'yyyy')}
-            </Text>
+            <Pressable onPress={goToToday}>
+              <Text variant="bodySmall" style={{ color: theme.colors.primary, textDecorationLine: 'underline' }}>
+                {format(parseISO(currentDate), 'yyyy')} • Go to today
+              </Text>
+            </Pressable>
           )}
         </Pressable>
         <IconButton icon="chevron-right" onPress={() => handleDateChange(1)} size={28} />
       </Surface>
+
+      {/* Date Picker */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={parseISO(currentDate)}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handleDatePickerChange}
+        />
+      )}
 
       {/* Member Tabs */}
       <View style={styles.tabsContainer}>
@@ -342,7 +370,16 @@ export default function HomeScreen() {
       )}
 
       {/* Content */}
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.content}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 180 : 0}
+      >
+      <ScrollView
+        style={styles.scrollContent}
+        contentContainerStyle={styles.contentContainer}
+        keyboardShouldPersistTaps="handled"
+      >
         {selectedMember?.sections.length === 0 && (
           <Surface style={styles.emptySection} elevation={0}>
             <MaterialCommunityIcons name="folder-plus-outline" size={48} color={theme.colors.onSurfaceVariant} />
@@ -390,6 +427,7 @@ export default function HomeScreen() {
           </>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -437,8 +475,16 @@ const styles = StyleSheet.create({
   dateCenter: {
     alignItems: 'center',
   },
+  dateTouchable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   dateText: {
     fontWeight: '600',
+  },
+  scrollContent: {
+    flex: 1,
   },
   todayBadge: {
     paddingHorizontal: 10,
