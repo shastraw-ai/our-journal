@@ -4,7 +4,7 @@ import { Button, Text, useTheme, ActivityIndicator, Surface } from 'react-native
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuthStore } from '../src/stores/authStore';
-import { useGoogleAuth, getUserInfo } from '../src/services/googleAuth';
+import { signInWithGoogle, configureGoogleSignIn } from '../src/services/googleAuth';
 
 export default function AuthScreen() {
   const theme = useTheme();
@@ -12,53 +12,35 @@ export default function AuthScreen() {
   const [error, setError] = useState<string | null>(null);
   const { setAuth } = useAuthStore();
 
-  const { request, response, promptAsync } = useGoogleAuth();
-
   useEffect(() => {
-    handleAuthResponse();
-  }, [response]);
-
-  const handleAuthResponse = async () => {
-    if (response?.type === 'success') {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const { authentication } = response;
-        if (authentication?.accessToken) {
-          console.log('Got access token, fetching user info...');
-          const userInfo = await getUserInfo(authentication.accessToken);
-
-          setAuth({
-            isAuthenticated: true,
-            isGuest: false,
-            accessToken: authentication.accessToken,
-            userEmail: userInfo.email || null,
-            userName: userInfo.name || null,
-          });
-
-          router.replace('/(tabs)');
-        } else {
-          setError('No access token received');
-        }
-      } catch (err) {
-        console.error('Auth error:', err);
-        setError('Failed to complete sign in');
-      } finally {
-        setIsLoading(false);
-      }
-    } else if (response?.type === 'error') {
-      setError(response.error?.message || 'Sign in failed');
-    }
-  };
+    // Configure Google Sign-In on mount
+    configureGoogleSignIn();
+  }, []);
 
   const handleGoogleSignIn = async () => {
+    setIsLoading(true);
     setError(null);
+
     try {
-      await promptAsync();
+      const result = await signInWithGoogle();
+
+      if (result.success) {
+        setAuth({
+          isAuthenticated: true,
+          isGuest: false,
+          accessToken: result.accessToken || null,
+          userEmail: result.email || null,
+          userName: result.name || null,
+        });
+        router.replace('/(tabs)');
+      } else {
+        setError(result.error || 'Sign in failed');
+      }
     } catch (err) {
-      console.error('Prompt error:', err);
-      setError('Failed to start sign in');
+      console.error('Sign in error:', err);
+      setError('An unexpected error occurred');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -107,7 +89,6 @@ export default function AuthScreen() {
                 style={styles.button}
                 icon="google"
                 contentStyle={styles.buttonContent}
-                disabled={!request}
               >
                 Sign in with Google
               </Button>

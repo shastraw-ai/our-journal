@@ -1,9 +1,8 @@
-import * as Google from 'expo-auth-session/providers/google';
-import * as AuthSession from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
+import {
+  GoogleSignin,
+  statusCodes,
+} from '@react-native-google-signin/google-signin';
 import Constants from 'expo-constants';
-
-WebBrowser.maybeCompleteAuthSession();
 
 // Get client IDs from app config
 const getClientIds = () => {
@@ -15,6 +14,21 @@ const getClientIds = () => {
   return extra.googleClientId;
 };
 
+// Configure Google Sign-In (call once at app startup)
+export function configureGoogleSignIn() {
+  const clientIds = getClientIds();
+
+  GoogleSignin.configure({
+    webClientId: clientIds?.web, // Required for getting accessToken
+    offlineAccess: true, // Required for refresh tokens
+    scopes: [
+      'https://www.googleapis.com/auth/drive.file',
+    ],
+  });
+
+  console.log('Google Sign-In configured');
+}
+
 export interface GoogleAuthResult {
   success: boolean;
   accessToken?: string;
@@ -24,94 +38,80 @@ export interface GoogleAuthResult {
   error?: string;
 }
 
-export function useGoogleAuth() {
-  const clientIds = getClientIds();
-
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    androidClientId: clientIds?.android,
-    iosClientId: clientIds?.ios,
-    webClientId: clientIds?.web,
-    scopes: [
-      'openid',
-      'profile',
-      'email',
-      'https://www.googleapis.com/auth/drive.file',
-    ],
-  });
-
-  // Debug logging
-  console.log('=== Google Auth Debug ===');
-  console.log('Request ready:', !!request);
-  console.log('Redirect URI:', request?.redirectUri);
-  console.log('Client ID:', request?.clientId);
-  console.log('Response type:', response?.type);
-  if (response?.type === 'success') {
-    console.log('Auth success! Token:', response.authentication?.accessToken?.substring(0, 20) + '...');
-  }
-  console.log('=========================');
-
-  return { request, response, promptAsync };
-}
-
-export async function getUserInfo(accessToken: string): Promise<{ email?: string; name?: string }> {
-  try {
-    const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!response.ok) {
-      throw new Error('Failed to get user info');
-    }
-    const data = await response.json();
-    return { email: data.email, name: data.name };
-  } catch (error) {
-    console.error('Error getting user info:', error);
-    return {};
-  }
-}
-
-// Legacy function for backwards compatibility
 export async function signInWithGoogle(): Promise<GoogleAuthResult> {
-  return {
-    success: false,
-    error: 'Please use the useGoogleAuth hook instead',
-  };
+  try {
+    // Check if Play Services are available
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+
+    // Sign in
+    const response = await GoogleSignin.signIn();
+
+    if (response.type === 'success' && response.data) {
+      // Get tokens
+      const tokens = await GoogleSignin.getTokens();
+
+      return {
+        success: true,
+        accessToken: tokens.accessToken,
+        email: response.data.user.email,
+        name: response.data.user.name || undefined,
+      };
+    } else if (response.type === 'cancelled') {
+      return {
+        success: false,
+        error: 'Sign in was cancelled',
+      };
+    } else {
+      return {
+        success: false,
+        error: 'Sign in failed',
+      };
+    }
+  } catch (error: any) {
+    console.error('Google Sign-In error:', error);
+
+    if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+      return { success: false, error: 'Sign in was cancelled' };
+    } else if (error.code === statusCodes.IN_PROGRESS) {
+      return { success: false, error: 'Sign in already in progress' };
+    } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+      return { success: false, error: 'Play Services not available' };
+    } else {
+      return {
+        success: false,
+        error: error.message || 'Unknown error occurred'
+      };
+    }
+  }
 }
 
-export async function refreshAccessToken(refreshToken: string): Promise<GoogleAuthResult> {
+export async function signOutGoogle(): Promise<void> {
   try {
-    const clientIds = getClientIds();
-    if (!clientIds) {
-      return { success: false, error: 'Client ID not configured' };
-    }
-
-    const response = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        client_id: clientIds.web,
-        refresh_token: refreshToken,
-        grant_type: 'refresh_token',
-      }).toString(),
-    });
-
-    if (!response.ok) {
-      return { success: false, error: 'Failed to refresh token' };
-    }
-
-    const data = await response.json();
-
-    return {
-      success: true,
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token || refreshToken,
-    };
+    await GoogleSignin.signOut();
   } catch (error) {
-    console.error('Token refresh error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
+    console.error('Sign out error:', error);
+  }
+}
+
+export async function isSignedIn(): Promise<boolean> {
+  return await GoogleSignin.isSignedIn();
+}
+
+export async function getCurrentUser() {
+  try {
+    const user = await GoogleSignin.getCurrentUser();
+    return user;
+  } catch (error) {
+    return null;
+  }
+}
+
+export async function getTokens() {
+  try {
+    const tokens = await GoogleSignin.getTokens();
+    return tokens;
+  } catch (error) {
+    console.error('Get tokens error:', error);
+    return null;
   }
 }
