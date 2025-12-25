@@ -27,12 +27,10 @@ export interface GoogleAuthResult {
 export function useGoogleAuth() {
   const clientIds = getClientIds();
 
-  // Use expoClientId for Expo Go - this uses Expo's auth proxy
   const [request, response, promptAsync] = Google.useAuthRequest({
-    expoClientId: clientIds?.web,  // Use web client ID with Expo proxy
-    webClientId: clientIds?.web,
-    iosClientId: clientIds?.ios,
     androidClientId: clientIds?.android,
+    iosClientId: clientIds?.ios,
+    webClientId: clientIds?.web,
     scopes: [
       'openid',
       'profile',
@@ -46,7 +44,10 @@ export function useGoogleAuth() {
   console.log('Request ready:', !!request);
   console.log('Redirect URI:', request?.redirectUri);
   console.log('Client ID:', request?.clientId);
-  console.log('Response:', response?.type);
+  console.log('Response type:', response?.type);
+  if (response?.type === 'success') {
+    console.log('Auth success! Token:', response.authentication?.accessToken?.substring(0, 20) + '...');
+  }
   console.log('=========================');
 
   return { request, response, promptAsync };
