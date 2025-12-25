@@ -37,13 +37,14 @@
     ],
     "extra": {
       "eas": {
-        "projectId": ""
+        "projectId": "6bf3d2dc-3387-4285-a372-e9e15d6dc8a7"
       },
       "googleClientId": {
         "web": "698202477776-pjlvo5jio8ul7d1ntr7lcra8at6a41en.apps.googleusercontent.com",
         "ios": "698202477776-k4elnnt44dhh8ib6uinre1p8aivsuhvm.apps.googleusercontent.com",
         "android": "698202477776-7v6mcvbcppti9julrbuv7tl5j0qbbj0g.apps.googleusercontent.com"
-      }
+      },
+      "router": {}
     }
   }
 }

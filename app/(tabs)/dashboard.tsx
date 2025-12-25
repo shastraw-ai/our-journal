@@ -4,16 +4,15 @@ import {
   Text,
   Card,
   useTheme,
-  Chip,
-  SegmentedButtons,
   Surface,
+  Divider,
 } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LineChart, BarChart } from 'react-native-chart-kit';
-import { format, subDays, subMonths, subYears, parseISO } from 'date-fns';
+import { format, subDays, parseISO, differenceInDays } from 'date-fns';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { useEntriesStore } from '../../src/stores/entriesStore';
-import { FamilyMember, Section, Task, DailyEntry } from '../../src/types';
+import { Task } from '../../src/types';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -37,6 +36,9 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     loadSettings();
+  }, []);
+
+  useEffect(() => {
     // Load entries for current and previous months based on date range
     const today = new Date();
     const months = new Set<string>();
@@ -67,28 +69,70 @@ export default function DashboardScreen() {
   const selectedMember = members.find((m) => m.id === selectedMemberId);
   const selectedSection = selectedMember?.sections.find((s) => s.id === selectedSectionId);
 
-  // Get entries for the selected date range
+  // Get all entries for the selected member (to find first entry date)
+  const allEntries = useMemo(() => {
+    if (!selectedMemberId) return [];
+    const today = new Date();
+    const startDate = format(subDays(today, 365), 'yyyy-MM-dd');
+    const endDate = format(today, 'yyyy-MM-dd');
+    return getEntriesForRange(selectedMemberId, startDate, endDate);
+  }, [selectedMemberId, getEntriesForRange]);
+
+  // Find the first entry date for this section
+  const firstEntryDate = useMemo(() => {
+    if (!selectedSection || allEntries.length === 0) return null;
+
+    const entriesWithSection = allEntries.filter((entry) =>
+      entry.sectionEntries.some((se) => se.sectionId === selectedSection.id)
+    );
+
+    if (entriesWithSection.length === 0) return null;
+
+    const sortedEntries = [...entriesWithSection].sort((a, b) =>
+      a.date.localeCompare(b.date)
+    );
+
+    return sortedEntries[0].date;
+  }, [allEntries, selectedSection]);
+
+  // Get entries for the selected date range, but limited to first entry date
   const entries = useMemo(() => {
     if (!selectedMemberId) return [];
     const today = new Date();
-    const startDate = format(subDays(today, parseInt(dateRange) - 1), 'yyyy-MM-dd');
+    let startDate = format(subDays(today, parseInt(dateRange) - 1), 'yyyy-MM-dd');
+
+    // If we have a first entry date and it's after our calculated start date, use it
+    if (firstEntryDate && firstEntryDate > startDate) {
+      startDate = firstEntryDate;
+    }
+
     const endDate = format(today, 'yyyy-MM-dd');
     return getEntriesForRange(selectedMemberId, startDate, endDate);
-  }, [selectedMemberId, dateRange, getEntriesForRange]);
+  }, [selectedMemberId, dateRange, firstEntryDate, getEntriesForRange]);
 
-  // Calculate checkbox task completion data
+  // Calculate the effective date range (from first entry to today)
+  const effectiveDays = useMemo(() => {
+    if (!firstEntryDate) return 0;
+    const today = new Date();
+    const requestedDays = parseInt(dateRange);
+    const daysSinceFirstEntry = differenceInDays(today, parseISO(firstEntryDate)) + 1;
+    return Math.min(requestedDays, daysSinceFirstEntry);
+  }, [firstEntryDate, dateRange]);
+
+  // Calculate checkbox task completion data - only from first entry date
   const checkboxData = useMemo(() => {
-    if (!selectedSection) return null;
+    if (!selectedSection || !firstEntryDate || effectiveDays === 0) return null;
 
     const checkboxTasks = selectedSection.tasks.filter((t) => t.type === 'checkbox');
     if (checkboxTasks.length === 0) return null;
 
-    const days = parseInt(dateRange);
     const labels: string[] = [];
     const data: number[] = [];
 
-    for (let i = days - 1; i >= 0; i--) {
+    for (let i = effectiveDays - 1; i >= 0; i--) {
       const date = format(subDays(new Date(), i), 'yyyy-MM-dd');
+      if (date < firstEntryDate) continue;
+
       labels.push(format(parseISO(date), 'M/d'));
 
       const entry = entries.find((e) => e.date === date);
@@ -106,23 +150,29 @@ export default function DashboardScreen() {
       }
     }
 
-    return { labels, data, taskCount: checkboxTasks.length };
-  }, [selectedSection, entries, dateRange]);
+    if (data.length === 0) return null;
 
-  // Calculate numeric task data
+    // Calculate average completion
+    const average = Math.round(data.reduce((a, b) => a + b, 0) / data.length);
+
+    return { labels, data, taskCount: checkboxTasks.length, average };
+  }, [selectedSection, entries, effectiveDays, firstEntryDate]);
+
+  // Calculate numeric task data - only from first entry date
   const numericData = useMemo(() => {
-    if (!selectedSection) return [];
+    if (!selectedSection || !firstEntryDate || effectiveDays === 0) return [];
 
     const numericTasks = selectedSection.tasks.filter((t) => t.type === 'numeric');
     if (numericTasks.length === 0) return [];
 
     return numericTasks.map((task) => {
-      const days = parseInt(dateRange);
       const labels: string[] = [];
       const data: number[] = [];
 
-      for (let i = days - 1; i >= 0; i--) {
+      for (let i = effectiveDays - 1; i >= 0; i--) {
         const date = format(subDays(new Date(), i), 'yyyy-MM-dd');
+        if (date < firstEntryDate) continue;
+
         labels.push(format(parseISO(date), 'M/d'));
 
         const entry = entries.find((e) => e.date === date);
@@ -132,21 +182,25 @@ export default function DashboardScreen() {
         data.push(typeof response?.value === 'number' ? response.value : 0);
       }
 
-      return { task, labels, data };
+      // Calculate average and total
+      const total = data.reduce((a, b) => a + b, 0);
+      const average = data.length > 0 ? Math.round((total / data.length) * 10) / 10 : 0;
+
+      return { task, labels, data, average, total };
     });
-  }, [selectedSection, entries, dateRange]);
+  }, [selectedSection, entries, effectiveDays, firstEntryDate]);
 
   // Calculate streak for checkbox tasks
   const streak = useMemo(() => {
-    if (!selectedSection || !checkboxData) return 0;
+    if (!selectedSection) return 0;
 
     const checkboxTasks = selectedSection.tasks.filter((t) => t.type === 'checkbox');
     if (checkboxTasks.length === 0) return 0;
 
     let currentStreak = 0;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 365; i++) {
       const date = format(subDays(new Date(), i), 'yyyy-MM-dd');
-      const entry = entries.find((e) => e.date === date);
+      const entry = allEntries.find((e) => e.date === date);
       const sectionEntry = entry?.sectionEntries.find((se) => se.sectionId === selectedSection.id);
 
       if (sectionEntry) {
@@ -166,30 +220,58 @@ export default function DashboardScreen() {
     }
 
     return currentStreak;
-  }, [selectedSection, entries]);
+  }, [selectedSection, allEntries]);
+
+  const memberColor = selectedMember?.color || theme.colors.primary;
 
   const chartConfig = {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: 'transparent',
     backgroundGradientFrom: theme.colors.surface,
     backgroundGradientTo: theme.colors.surface,
+    backgroundGradientFromOpacity: 0,
+    backgroundGradientToOpacity: 0,
     decimalPlaces: 0,
-    color: (opacity = 1) => selectedMember?.color || theme.colors.primary,
-    labelColor: (opacity = 1) => theme.colors.onSurface,
-    style: {
-      borderRadius: 16,
+    color: (opacity = 1) => `${memberColor}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`,
+    labelColor: () => theme.colors.onSurfaceVariant,
+    strokeWidth: 3,
+    barPercentage: 0.6,
+    useShadowColorFromDataset: false,
+    propsForBackgroundLines: {
+      strokeDasharray: '4 4',
+      stroke: theme.colors.outlineVariant,
+      strokeWidth: 1,
     },
     propsForDots: {
-      r: '4',
+      r: '5',
       strokeWidth: '2',
-      stroke: selectedMember?.color || theme.colors.primary,
+      stroke: theme.colors.surface,
+      fill: memberColor,
     },
+    propsForLabels: {
+      fontSize: 11,
+    },
+    fillShadowGradientFrom: memberColor,
+    fillShadowGradientTo: memberColor,
+    fillShadowGradientFromOpacity: 0.3,
+    fillShadowGradientToOpacity: 0.05,
+  };
+
+  const getSmartLabels = (labels: string[], maxLabels: number = 6) => {
+    if (labels.length <= maxLabels) return labels;
+    const step = Math.ceil(labels.length / maxLabels);
+    return labels.map((label, i) => (i % step === 0 || i === labels.length - 1) ? label : '');
   };
 
   if (members.length === 0) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
-        <Text variant="bodyLarge">No family members configured yet.</Text>
-        <Text variant="bodyMedium" style={styles.hint}>Add members in Settings to see dashboard.</Text>
+        <Surface style={styles.emptyCard} elevation={0}>
+          <MaterialCommunityIcons name="chart-line" size={64} color={theme.colors.onSurfaceVariant} />
+          <Text variant="headlineSmall" style={styles.emptyTitle}>No Data Yet</Text>
+          <Text variant="bodyMedium" style={styles.emptyText}>
+            Add family members in Settings to start tracking and see charts here.
+          </Text>
+        </Surface>
       </View>
     );
   }
@@ -197,7 +279,7 @@ export default function DashboardScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Member Tabs */}
-      <View style={styles.tabsContainer}>
+      <Surface style={styles.tabsContainer} elevation={1}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -228,7 +310,7 @@ export default function DashboardScreen() {
             );
           })}
         </ScrollView>
-      </View>
+      </Surface>
 
       {/* Section Tabs */}
       {selectedMember && selectedMember.sections.length > 0 && (
@@ -247,9 +329,9 @@ export default function DashboardScreen() {
                   style={[
                     styles.sectionTab,
                     isSelected && {
-                      backgroundColor: selectedMember.color + '15',
+                      backgroundColor: selectedMember.color + '10',
                       borderBottomColor: selectedMember.color,
-                      borderBottomWidth: 2,
+                      borderBottomWidth: 3,
                     },
                   ]}
                 >
@@ -285,21 +367,21 @@ export default function DashboardScreen() {
                 style={[
                   styles.dateRangeTab,
                   isSelected && {
-                    backgroundColor: (selectedMember?.color || theme.colors.primary) + '20',
-                    borderColor: selectedMember?.color || theme.colors.primary,
+                    backgroundColor: memberColor + '15',
+                    borderColor: memberColor,
                   },
                 ]}
               >
                 <MaterialCommunityIcons
                   name={option.icon as any}
-                  size={18}
-                  color={isSelected ? selectedMember?.color || theme.colors.primary : theme.colors.onSurfaceVariant}
+                  size={16}
+                  color={isSelected ? memberColor : theme.colors.onSurfaceVariant}
                 />
                 <Text
                   variant="labelMedium"
                   style={[
                     styles.dateRangeText,
-                    isSelected && { color: selectedMember?.color || theme.colors.primary, fontWeight: '600' }
+                    isSelected && { color: memberColor, fontWeight: '600' }
                   ]}
                 >
                   {option.label}
@@ -312,101 +394,148 @@ export default function DashboardScreen() {
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {!selectedSection && (
-          <Card style={styles.card}>
-            <Card.Content>
-              <Text variant="bodyMedium" style={styles.noData}>
-                No sections configured for this member.
-              </Text>
-            </Card.Content>
-          </Card>
+          <Surface style={styles.emptySection} elevation={0}>
+            <MaterialCommunityIcons name="folder-open-outline" size={48} color={theme.colors.onSurfaceVariant} />
+            <Text variant="titleMedium" style={styles.emptySectionTitle}>No Sections</Text>
+            <Text variant="bodyMedium" style={styles.emptySectionText}>
+              Add sections for this member in Settings.
+            </Text>
+          </Surface>
         )}
 
         {/* Stats Summary */}
         {selectedSection && (
           <View style={styles.statsRow}>
-            <Card style={styles.statCard}>
-              <Card.Content style={styles.statContent}>
-                <Text variant="displaySmall" style={{ color: selectedMember?.color }}>
-                  {streak}
+            <Surface style={[styles.statCard, { borderLeftColor: memberColor }]} elevation={1}>
+              <MaterialCommunityIcons name="fire" size={24} color={memberColor} />
+              <Text variant="headlineMedium" style={[styles.statValue, { color: memberColor }]}>
+                {streak}
+              </Text>
+              <Text variant="labelSmall" style={styles.statLabel}>Day Streak</Text>
+            </Surface>
+            <Surface style={[styles.statCard, { borderLeftColor: memberColor }]} elevation={1}>
+              <MaterialCommunityIcons name="calendar-check" size={24} color={memberColor} />
+              <Text variant="headlineMedium" style={[styles.statValue, { color: memberColor }]}>
+                {entries.length}
+              </Text>
+              <Text variant="labelSmall" style={styles.statLabel}>Entries</Text>
+            </Surface>
+            {checkboxData && (
+              <Surface style={[styles.statCard, { borderLeftColor: memberColor }]} elevation={1}>
+                <MaterialCommunityIcons name="percent" size={24} color={memberColor} />
+                <Text variant="headlineMedium" style={[styles.statValue, { color: memberColor }]}>
+                  {checkboxData.average}
                 </Text>
-                <Text variant="labelMedium">Day Streak</Text>
-              </Card.Content>
-            </Card>
-            <Card style={styles.statCard}>
-              <Card.Content style={styles.statContent}>
-                <Text variant="displaySmall" style={{ color: selectedMember?.color }}>
-                  {entries.length}
-                </Text>
-                <Text variant="labelMedium">Entries</Text>
-              </Card.Content>
-            </Card>
+                <Text variant="labelSmall" style={styles.statLabel}>Avg Done</Text>
+              </Surface>
+            )}
           </View>
         )}
 
         {/* Checkbox Completion Chart */}
-        {checkboxData && checkboxData.data.some((d) => d > 0) && (
-          <Card style={styles.card}>
-            <Card.Title title="Task Completion %" />
-            <Card.Content>
-              <LineChart
-                data={{
-                  labels: checkboxData.labels.filter((_, i) => i % Math.ceil(checkboxData.labels.length / 7) === 0),
-                  datasets: [{ data: checkboxData.data.length > 0 ? checkboxData.data : [0] }],
-                }}
-                width={screenWidth - 64}
-                height={200}
-                chartConfig={chartConfig}
-                bezier
-                style={styles.chart}
-                yAxisSuffix="%"
-                fromZero
-              />
-              <Text variant="bodySmall" style={styles.chartHint}>
-                Based on {checkboxData.taskCount} checkbox task(s)
-              </Text>
-            </Card.Content>
-          </Card>
+        {checkboxData && checkboxData.data.length > 1 && (
+          <Surface style={styles.chartCard} elevation={1}>
+            <View style={styles.chartHeader}>
+              <View style={styles.chartTitleRow}>
+                <MaterialCommunityIcons name="checkbox-marked-circle-outline" size={20} color={memberColor} />
+                <Text variant="titleMedium" style={styles.chartTitle}>Task Completion</Text>
+              </View>
+              <View style={[styles.chartBadge, { backgroundColor: memberColor + '20' }]}>
+                <Text variant="labelSmall" style={{ color: memberColor }}>
+                  {checkboxData.taskCount} task{checkboxData.taskCount !== 1 ? 's' : ''}
+                </Text>
+              </View>
+            </View>
+            <Divider style={styles.chartDivider} />
+            <LineChart
+              data={{
+                labels: getSmartLabels(checkboxData.labels),
+                datasets: [{ data: checkboxData.data, strokeWidth: 3 }],
+              }}
+              width={screenWidth - 48}
+              height={200}
+              chartConfig={chartConfig}
+              bezier
+              style={styles.chart}
+              yAxisSuffix="%"
+              fromZero
+              withInnerLines={true}
+              withOuterLines={false}
+              withVerticalLines={false}
+              withHorizontalLabels={true}
+              segments={4}
+            />
+          </Surface>
         )}
 
         {/* Numeric Task Charts */}
-        {numericData.map(({ task, labels, data }) => (
-          data.some((d) => d > 0) && (
-            <Card key={task.id} style={styles.card}>
-              <Card.Title
-                title={task.name}
-                subtitle={task.unit ? `Unit: ${task.unit}` : undefined}
+        {numericData.map(({ task, labels, data, average, total }) => (
+          data.length > 1 && data.some((d) => d > 0) && (
+            <Surface key={task.id} style={styles.chartCard} elevation={1}>
+              <View style={styles.chartHeader}>
+                <View style={styles.chartTitleRow}>
+                  <MaterialCommunityIcons name="numeric" size={20} color={memberColor} />
+                  <Text variant="titleMedium" style={styles.chartTitle}>{task.name}</Text>
+                </View>
+                {task.unit && (
+                  <View style={[styles.chartBadge, { backgroundColor: memberColor + '20' }]}>
+                    <Text variant="labelSmall" style={{ color: memberColor }}>{task.unit}</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.numericStats}>
+                <View style={styles.numericStat}>
+                  <Text variant="labelSmall" style={styles.numericStatLabel}>Average</Text>
+                  <Text variant="titleMedium" style={{ color: memberColor }}>{average}</Text>
+                </View>
+                <View style={styles.numericStat}>
+                  <Text variant="labelSmall" style={styles.numericStatLabel}>Total</Text>
+                  <Text variant="titleMedium" style={{ color: memberColor }}>{total}</Text>
+                </View>
+              </View>
+              <Divider style={styles.chartDivider} />
+              <BarChart
+                data={{
+                  labels: getSmartLabels(labels),
+                  datasets: [{ data: data.length > 0 ? data : [0] }],
+                }}
+                width={screenWidth - 48}
+                height={180}
+                chartConfig={{
+                  ...chartConfig,
+                  barPercentage: Math.min(0.8, 6 / data.length),
+                }}
+                style={styles.chart}
+                fromZero
+                showValuesOnTopOfBars={data.length <= 14}
+                withInnerLines={true}
+                showBarTops={false}
+                yAxisLabel=""
+                yAxisSuffix=""
               />
-              <Card.Content>
-                <BarChart
-                  data={{
-                    labels: labels.filter((_, i) => i % Math.ceil(labels.length / 7) === 0),
-                    datasets: [{ data: data.length > 0 ? data : [0] }],
-                  }}
-                  width={screenWidth - 64}
-                  height={200}
-                  chartConfig={chartConfig}
-                  style={styles.chart}
-                  fromZero
-                  yAxisLabel=""
-                  yAxisSuffix={task.unit ? ` ${task.unit}` : ''}
-                />
-              </Card.Content>
-            </Card>
+            </Surface>
           )
         ))}
 
-        {selectedSection &&
-          !checkboxData?.data.some((d) => d > 0) &&
-          !numericData.some(({ data }) => data.some((d) => d > 0)) && (
-            <Card style={styles.card}>
-              <Card.Content>
-                <Text variant="bodyMedium" style={styles.noData}>
-                  No data recorded for this period.{'\n'}
-                  Start logging entries in the Journal tab!
-                </Text>
-              </Card.Content>
-            </Card>
-          )}
+        {selectedSection && !firstEntryDate && (
+          <Surface style={styles.noDataCard} elevation={0}>
+            <MaterialCommunityIcons name="chart-timeline-variant" size={56} color={theme.colors.onSurfaceVariant} />
+            <Text variant="titleMedium" style={styles.noDataTitle}>No Data Yet</Text>
+            <Text variant="bodyMedium" style={styles.noDataText}>
+              Start logging entries in the Journal tab to see your progress charts here.
+            </Text>
+          </Surface>
+        )}
+
+        {selectedSection && firstEntryDate && effectiveDays === 1 && (
+          <Surface style={styles.noDataCard} elevation={0}>
+            <MaterialCommunityIcons name="chart-timeline-variant" size={56} color={theme.colors.onSurfaceVariant} />
+            <Text variant="titleMedium" style={styles.noDataTitle}>Keep Going!</Text>
+            <Text variant="bodyMedium" style={styles.noDataText}>
+              You have 1 day of data. Charts will appear after you log more entries.
+            </Text>
+          </Surface>
+        )}
       </ScrollView>
     </View>
   );
@@ -422,18 +551,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 24,
   },
-  hint: {
-    marginTop: 8,
-    opacity: 0.7,
+  emptyCard: {
+    alignItems: 'center',
+    padding: 40,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  emptyTitle: {
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyText: {
+    textAlign: 'center',
+    opacity: 0.6,
   },
   tabsContainer: {
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.08)',
+    borderBottomWidth: 0,
   },
   tabsContent: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 10,
   },
   memberTab: {
     flexDirection: 'row',
@@ -441,9 +579,9 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.12)',
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: 'rgba(0,0,0,0.1)',
     backgroundColor: 'rgba(0,0,0,0.02)',
   },
   memberDot: {
@@ -456,29 +594,28 @@ const styles = StyleSheet.create({
   },
   sectionTabsContainer: {
     backgroundColor: 'rgba(0,0,0,0.02)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   sectionTabsContent: {
     paddingHorizontal: 12,
-    gap: 4,
   },
   sectionTab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 2,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 3,
     borderBottomColor: 'transparent',
   },
   sectionTabText: {
     color: '#666',
   },
   dateRangeContainer: {
+    backgroundColor: 'rgba(0,0,0,0.01)',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.08)',
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   dateRangeContent: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     gap: 8,
   },
@@ -488,10 +625,10 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.12)',
-    backgroundColor: 'rgba(0,0,0,0.02)',
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: 'rgba(0,0,0,0.08)',
+    backgroundColor: 'transparent',
   },
   dateRangeText: {
     color: '#666',
@@ -501,34 +638,99 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 16,
-    paddingBottom: 32,
+    paddingBottom: 40,
+    gap: 16,
+  },
+  emptySection: {
+    alignItems: 'center',
+    padding: 40,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  emptySectionTitle: {
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  emptySectionText: {
+    opacity: 0.6,
+    textAlign: 'center',
   },
   statsRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
+    gap: 10,
   },
   statCard: {
     flex: 1,
-  },
-  statContent: {
     alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderLeftWidth: 4,
   },
-  card: {
-    marginBottom: 16,
+  statValue: {
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  statLabel: {
+    opacity: 0.6,
+    marginTop: 2,
+  },
+  chartCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  chartHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    paddingBottom: 12,
+  },
+  chartTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  chartTitle: {
+    fontWeight: '600',
+  },
+  chartBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  chartDivider: {
+    marginHorizontal: 16,
   },
   chart: {
-    marginVertical: 8,
-    borderRadius: 16,
+    marginVertical: 12,
+    marginLeft: -8,
   },
-  chartHint: {
+  numericStats: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 24,
+    marginBottom: 8,
+  },
+  numericStat: {
+    alignItems: 'center',
+  },
+  numericStatLabel: {
+    opacity: 0.6,
+    marginBottom: 2,
+  },
+  noDataCard: {
+    alignItems: 'center',
+    padding: 48,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  noDataTitle: {
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  noDataText: {
     textAlign: 'center',
     opacity: 0.6,
-    marginTop: 8,
-  },
-  noData: {
-    textAlign: 'center',
-    opacity: 0.7,
-    paddingVertical: 24,
+    lineHeight: 22,
   },
 });

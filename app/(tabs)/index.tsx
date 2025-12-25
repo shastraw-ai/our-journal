@@ -334,9 +334,9 @@ export default function HomeScreen() {
                   style={[
                     styles.sectionTab,
                     isSelected && {
-                      backgroundColor: selectedMember.color + '15',
+                      backgroundColor: selectedMember.color + '10',
                       borderBottomColor: selectedMember.color,
-                      borderBottomWidth: 2,
+                      borderBottomWidth: 3,
                     },
                   ]}
                 >
@@ -450,15 +450,16 @@ const styles = StyleSheet.create({
   emptyText: {
     marginBottom: 24,
     textAlign: 'center',
-    opacity: 0.7,
+    opacity: 0.6,
+    lineHeight: 22,
   },
   emptyButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 28,
   },
   emptyButtonText: {
     color: '#fff',
@@ -469,8 +470,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
   },
   dateCenter: {
     alignItems: 'center',
@@ -487,10 +488,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   todayBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 2,
-    borderRadius: 10,
-    marginTop: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 3,
+    borderRadius: 12,
+    marginTop: 6,
   },
   todayText: {
     color: '#fff',
@@ -500,12 +501,12 @@ const styles = StyleSheet.create({
   },
   tabsContainer: {
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.08)',
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   tabsContent: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 10,
   },
   memberTab: {
     flexDirection: 'row',
@@ -513,9 +514,9 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.12)',
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: 'rgba(0,0,0,0.1)',
     backgroundColor: 'rgba(0,0,0,0.02)',
   },
   memberDot: {
@@ -528,27 +529,28 @@ const styles = StyleSheet.create({
   },
   sectionTabsContainer: {
     backgroundColor: 'rgba(0,0,0,0.02)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   sectionTabsContent: {
     paddingHorizontal: 12,
-    gap: 4,
   },
   sectionTab: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 2,
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 3,
     borderBottomColor: 'transparent',
   },
   sectionTabText: {
     color: '#666',
   },
   completionBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
   },
   completionText: {
     fontSize: 11,
@@ -559,12 +561,13 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 16,
-    paddingBottom: 32,
+    paddingBottom: 40,
+    gap: 12,
   },
   emptySection: {
     alignItems: 'center',
-    padding: 40,
-    borderRadius: 12,
+    padding: 48,
+    borderRadius: 16,
     backgroundColor: 'rgba(0,0,0,0.02)',
   },
   emptySectionTitle: {
@@ -577,8 +580,8 @@ const styles = StyleSheet.create({
   },
   emptyTasks: {
     alignItems: 'center',
-    padding: 32,
-    borderRadius: 12,
+    padding: 40,
+    borderRadius: 16,
     backgroundColor: 'rgba(0,0,0,0.02)',
   },
   emptyTasksText: {
@@ -586,11 +589,11 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   tasksList: {
-    gap: 10,
+    gap: 12,
   },
   taskCard: {
-    padding: 16,
-    borderRadius: 12,
+    padding: 18,
+    borderRadius: 16,
   },
   checkboxTask: {
     flexDirection: 'row',
@@ -600,18 +603,19 @@ const styles = StyleSheet.create({
   taskLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
     flex: 1,
   },
   taskLabel: {
     flex: 1,
   },
   taskCompleted: {
-    opacity: 0.6,
+    opacity: 0.5,
     textDecorationLine: 'line-through',
   },
   taskInputLabel: {
-    marginBottom: 8,
+    marginBottom: 10,
+    fontWeight: '500',
   },
   textInput: {
     backgroundColor: 'transparent',
@@ -623,7 +627,7 @@ const styles = StyleSheet.create({
   },
   numericInfo: {
     flex: 1,
-    gap: 2,
+    gap: 4,
   },
   numericInput: {
     width: 100,
@@ -631,15 +635,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   notesCard: {
-    marginTop: 20,
-    padding: 16,
-    borderRadius: 12,
+    marginTop: 8,
+    padding: 18,
+    borderRadius: 16,
   },
   notesHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+    gap: 10,
+    marginBottom: 14,
   },
   notesInput: {
     backgroundColor: 'transparent',

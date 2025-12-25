@@ -1,3 +1,4 @@
+import * as Google from 'expo-auth-session/providers/google';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
@@ -5,20 +6,13 @@ import Constants from 'expo-constants';
 WebBrowser.maybeCompleteAuthSession();
 
 // Get client IDs from app config
-const getClientId = () => {
+const getClientIds = () => {
   const extra = Constants.expoConfig?.extra;
   if (!extra?.googleClientId) {
     console.warn('Google Client IDs not configured in app.json');
     return null;
   }
   return extra.googleClientId;
-};
-
-// Discovery document for Google OAuth
-const discovery = {
-  authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-  tokenEndpoint: 'https://oauth2.googleapis.com/token',
-  revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
 };
 
 export interface GoogleAuthResult {
@@ -30,106 +24,66 @@ export interface GoogleAuthResult {
   error?: string;
 }
 
-export async function signInWithGoogle(): Promise<GoogleAuthResult> {
+export function useGoogleAuth() {
+  const clientIds = getClientIds();
+
+  // Use expoClientId for Expo Go - this uses Expo's auth proxy
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    expoClientId: clientIds?.web,  // Use web client ID with Expo proxy
+    webClientId: clientIds?.web,
+    iosClientId: clientIds?.ios,
+    androidClientId: clientIds?.android,
+    scopes: [
+      'openid',
+      'profile',
+      'email',
+      'https://www.googleapis.com/auth/drive.file',
+    ],
+  });
+
+  // Debug logging
+  console.log('=== Google Auth Debug ===');
+  console.log('Request ready:', !!request);
+  console.log('Redirect URI:', request?.redirectUri);
+  console.log('Client ID:', request?.clientId);
+  console.log('Response:', response?.type);
+  console.log('=========================');
+
+  return { request, response, promptAsync };
+}
+
+export async function getUserInfo(accessToken: string): Promise<{ email?: string; name?: string }> {
   try {
-    const clientIds = getClientId();
-
-    if (!clientIds || clientIds.web === 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com') {
-      return {
-        success: false,
-        error: 'Google OAuth not configured. Please set up Google Cloud credentials.',
-      };
-    }
-
-    // Create the auth request
-    const redirectUri = AuthSession.makeRedirectUri({
-      scheme: 'ourjournal',
+    const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
-
-    const request = new AuthSession.AuthRequest({
-      clientId: clientIds.web,
-      scopes: [
-        'openid',
-        'profile',
-        'email',
-        'https://www.googleapis.com/auth/drive.file',
-      ],
-      redirectUri,
-      responseType: AuthSession.ResponseType.Code,
-      usePKCE: true,
-    });
-
-    // Prompt the user to sign in
-    const result = await request.promptAsync(discovery);
-
-    if (result.type === 'success' && result.params.code) {
-      // Exchange code for tokens
-      const tokenResult = await AuthSession.exchangeCodeAsync(
-        {
-          clientId: clientIds.web,
-          code: result.params.code,
-          redirectUri,
-          extraParams: {
-            code_verifier: request.codeVerifier!,
-          },
-        },
-        discovery
-      );
-
-      // Get user info
-      const userInfoResponse = await fetch(
-        'https://www.googleapis.com/oauth2/v2/userinfo',
-        {
-          headers: {
-            Authorization: `Bearer ${tokenResult.accessToken}`,
-          },
-        }
-      );
-
-      if (!userInfoResponse.ok) {
-        return {
-          success: false,
-          error: 'Failed to get user information',
-        };
-      }
-
-      const userInfo = await userInfoResponse.json();
-
-      return {
-        success: true,
-        accessToken: tokenResult.accessToken,
-        refreshToken: tokenResult.refreshToken || undefined,
-        email: userInfo.email,
-        name: userInfo.name,
-      };
-    } else if (result.type === 'cancel') {
-      return {
-        success: false,
-        error: 'Sign in was cancelled',
-      };
-    } else {
-      return {
-        success: false,
-        error: 'Sign in failed',
-      };
+    if (!response.ok) {
+      throw new Error('Failed to get user info');
     }
+    const data = await response.json();
+    return { email: data.email, name: data.name };
   } catch (error) {
-    console.error('Google sign in error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
+    console.error('Error getting user info:', error);
+    return {};
   }
+}
+
+// Legacy function for backwards compatibility
+export async function signInWithGoogle(): Promise<GoogleAuthResult> {
+  return {
+    success: false,
+    error: 'Please use the useGoogleAuth hook instead',
+  };
 }
 
 export async function refreshAccessToken(refreshToken: string): Promise<GoogleAuthResult> {
   try {
-    const clientIds = getClientId();
+    const clientIds = getClientIds();
     if (!clientIds) {
       return { success: false, error: 'Client ID not configured' };
     }
 
-    const response = await fetch(discovery.tokenEndpoint, {
+    const response = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',

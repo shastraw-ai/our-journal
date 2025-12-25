@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { View, StyleSheet, Image } from 'react-native';
-import { Button, Text, useTheme, ActivityIndicator } from 'react-native-paper';
+import { useState, useEffect } from 'react';
+import { View, StyleSheet } from 'react-native';
+import { Button, Text, useTheme, ActivityIndicator, Surface } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuthStore } from '../src/stores/authStore';
-import { signInWithGoogle } from '../src/services/googleAuth';
+import { useGoogleAuth, getUserInfo } from '../src/services/googleAuth';
 
 export default function AuthScreen() {
   const theme = useTheme();
@@ -11,28 +12,53 @@ export default function AuthScreen() {
   const [error, setError] = useState<string | null>(null);
   const { setAuth } = useAuthStore();
 
+  const { request, response, promptAsync } = useGoogleAuth();
+
+  useEffect(() => {
+    handleAuthResponse();
+  }, [response]);
+
+  const handleAuthResponse = async () => {
+    if (response?.type === 'success') {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const { authentication } = response;
+        if (authentication?.accessToken) {
+          console.log('Got access token, fetching user info...');
+          const userInfo = await getUserInfo(authentication.accessToken);
+
+          setAuth({
+            isAuthenticated: true,
+            isGuest: false,
+            accessToken: authentication.accessToken,
+            userEmail: userInfo.email || null,
+            userName: userInfo.name || null,
+          });
+
+          router.replace('/(tabs)');
+        } else {
+          setError('No access token received');
+        }
+      } catch (err) {
+        console.error('Auth error:', err);
+        setError('Failed to complete sign in');
+      } finally {
+        setIsLoading(false);
+      }
+    } else if (response?.type === 'error') {
+      setError(response.error?.message || 'Sign in failed');
+    }
+  };
+
   const handleGoogleSignIn = async () => {
-    setIsLoading(true);
     setError(null);
     try {
-      const result = await signInWithGoogle();
-      if (result.success) {
-        setAuth({
-          isAuthenticated: true,
-          isGuest: false,
-          accessToken: result.accessToken,
-          userEmail: result.email,
-          userName: result.name,
-        });
-        router.replace('/(tabs)');
-      } else {
-        setError(result.error || 'Sign in failed');
-      }
+      await promptAsync();
     } catch (err) {
-      setError('An unexpected error occurred');
-      console.error(err);
-    } finally {
-      setIsLoading(false);
+      console.error('Prompt error:', err);
+      setError('Failed to start sign in');
     }
   };
 
@@ -51,6 +77,12 @@ export default function AuthScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={styles.content}>
         <View style={styles.header}>
+          <MaterialCommunityIcons
+            name="book-heart-outline"
+            size={80}
+            color={theme.colors.primary}
+            style={styles.icon}
+          />
           <Text variant="displaySmall" style={[styles.title, { color: theme.colors.primary }]}>
             Our Journal
           </Text>
@@ -59,9 +91,14 @@ export default function AuthScreen() {
           </Text>
         </View>
 
-        <View style={styles.buttonContainer}>
+        <Surface style={styles.buttonContainer} elevation={0}>
           {isLoading ? (
-            <ActivityIndicator size="large" />
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <Text variant="bodyMedium" style={styles.loadingText}>
+                Signing in...
+              </Text>
+            </View>
           ) : (
             <>
               <Button
@@ -70,13 +107,18 @@ export default function AuthScreen() {
                 style={styles.button}
                 icon="google"
                 contentStyle={styles.buttonContent}
+                disabled={!request}
               >
                 Sign in with Google
               </Button>
 
-              <Text variant="bodySmall" style={[styles.orText, { color: theme.colors.onSurfaceVariant }]}>
-                or
-              </Text>
+              <View style={styles.dividerContainer}>
+                <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+                <Text variant="bodySmall" style={[styles.orText, { color: theme.colors.onSurfaceVariant }]}>
+                  or
+                </Text>
+                <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+              </View>
 
               <Button
                 mode="outlined"
@@ -96,11 +138,14 @@ export default function AuthScreen() {
           )}
 
           {error && (
-            <Text variant="bodyMedium" style={[styles.error, { color: theme.colors.error }]}>
-              {error}
-            </Text>
+            <Surface style={[styles.errorContainer, { backgroundColor: theme.colors.errorContainer }]} elevation={0}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={20} color={theme.colors.error} />
+              <Text variant="bodyMedium" style={{ color: theme.colors.error, flex: 1 }}>
+                {error}
+              </Text>
+            </Surface>
           )}
-        </View>
+        </Surface>
       </View>
     </View>
   );
@@ -118,7 +163,10 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 60,
+    marginBottom: 48,
+  },
+  icon: {
+    marginBottom: 16,
   },
   title: {
     fontWeight: 'bold',
@@ -129,26 +177,54 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     width: '100%',
-    maxWidth: 300,
+    maxWidth: 320,
     alignItems: 'center',
+    padding: 24,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 16,
+    opacity: 0.7,
   },
   button: {
     width: '100%',
-    marginVertical: 8,
+    marginVertical: 6,
+    borderRadius: 28,
   },
   buttonContent: {
-    paddingVertical: 8,
+    paddingVertical: 10,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginVertical: 20,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
   },
   orText: {
-    marginVertical: 16,
+    marginHorizontal: 16,
   },
   guestNote: {
     marginTop: 24,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
+    opacity: 0.8,
   },
-  error: {
-    marginTop: 16,
-    textAlign: 'center',
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 20,
+    padding: 14,
+    borderRadius: 12,
+    width: '100%',
   },
 });
