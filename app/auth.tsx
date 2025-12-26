@@ -1,21 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Button, Text, useTheme, ActivityIndicator, Surface } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuthStore } from '../src/stores/authStore';
-import { signInWithGoogle, configureGoogleSignIn } from '../src/services/googleAuth';
+import { signInWithGoogle } from '../src/services/googleAuth';
 
 export default function AuthScreen() {
   const theme = useTheme();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { setAuth } = useAuthStore();
-
-  useEffect(() => {
-    // Configure Google Sign-In on mount
-    configureGoogleSignIn();
-  }, []);
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);

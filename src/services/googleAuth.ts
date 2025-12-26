@@ -97,6 +97,36 @@ export async function isSignedIn(): Promise<boolean> {
   return await GoogleSignin.hasPreviousSignIn();
 }
 
+export async function signInSilently(): Promise<GoogleAuthResult> {
+  try {
+    // Check if user has previously signed in
+    const hasPreviousSignIn = await GoogleSignin.hasPreviousSignIn();
+    if (!hasPreviousSignIn) {
+      return { success: false, error: 'No previous sign in' };
+    }
+
+    // Try to sign in silently (restore previous session)
+    const response = await GoogleSignin.signInSilently();
+
+    if (response.type === 'success' && response.data) {
+      // Get fresh tokens
+      const tokens = await GoogleSignin.getTokens();
+
+      return {
+        success: true,
+        accessToken: tokens.accessToken,
+        email: response.data.user.email,
+        name: response.data.user.name || undefined,
+      };
+    } else {
+      return { success: false, error: 'Silent sign in failed' };
+    }
+  } catch (error: any) {
+    console.log('Silent sign-in not available:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
 export async function getCurrentUser() {
   try {
     const user = await GoogleSignin.getCurrentUser();

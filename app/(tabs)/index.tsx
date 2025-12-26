@@ -40,6 +40,7 @@ export default function HomeScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const richEditorRef = useRef<RichEditor>(null);
   const scrollViewRef = useRef<KeyboardAwareScrollView>(null);
+  const [currentScrollY, setCurrentScrollY] = useState(0);
 
   useEffect(() => {
     loadSettings();
@@ -383,6 +384,8 @@ export default function HomeScreen() {
         enableAutomaticScroll={true}
         extraScrollHeight={150}
         showsVerticalScrollIndicator={true}
+        onScroll={(event) => setCurrentScrollY(event.nativeEvent.contentOffset.y)}
+        scrollEventThrottle={16}
       >
         {selectedMember?.sections.length === 0 && (
           <Surface style={styles.emptySection} elevation={0}>
@@ -438,9 +441,9 @@ export default function HomeScreen() {
                   initialContentHTML={getSectionNotes(selectedSection.id)}
                   onChange={(html) => handleNotesChange(selectedSection.id, html)}
                   onFocus={() => {
-                    // Scroll to show the notes editor when focused
+                    // Scroll down a bit to show the notes editor when focused
                     setTimeout(() => {
-                      scrollViewRef.current?.scrollToEnd(true);
+                      scrollViewRef.current?.scrollToPosition(0, currentScrollY + 150, true);
                     }, 300);
                   }}
                   placeholder="Add notes for today..."
