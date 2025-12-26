@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, StyleSheet, Pressable, Platform } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import {
   Text,
   Button,
@@ -11,16 +12,29 @@ import {
   useTheme,
   Chip,
   SegmentedButtons,
-  FAB,
   Divider,
   Surface,
   Avatar,
+  Switch,
 } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import * as Notifications from 'expo-notifications';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { useAuthStore } from '../../src/stores/authStore';
 import { TaskType, FamilyMember, Section } from '../../src/types';
 import { router } from 'expo-router';
+
+// Configure notifications
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 const COLORS = [
   '#E53935', '#D81B60', '#8E24AA', '#5E35B1',
@@ -56,8 +70,15 @@ export default function SettingsScreen() {
   const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
   const [expandedSectionId, setExpandedSectionId] = useState<string | null>(null);
 
+  // Reminder states
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [reminderTime, setReminderTime] = useState(new Date(new Date().setHours(20, 0, 0, 0)));
+  const [showTimePicker, setShowTimePicker] = useState(false);
+
   useEffect(() => {
     loadSettings();
+    loadReminderSettings();
+    requestNotificationPermissions();
   }, []);
 
   // Auto-expand first member if exists
@@ -66,6 +87,70 @@ export default function SettingsScreen() {
       setExpandedMemberId(members[0].id);
     }
   }, [members]);
+
+  const requestNotificationPermissions = async () => {
+    const { status } = await Notifications.requestPermissionsAsync();
+    if (status !== 'granted') {
+      console.log('Notification permissions not granted');
+    }
+  };
+
+  const loadReminderSettings = async () => {
+    const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
+    const journalReminder = scheduledNotifications.find(n => n.identifier === 'journal-reminder');
+    if (journalReminder) {
+      setReminderEnabled(true);
+      const trigger = journalReminder.trigger as any;
+      if (trigger?.hour !== undefined && trigger?.minute !== undefined) {
+        const time = new Date();
+        time.setHours(trigger.hour, trigger.minute, 0, 0);
+        setReminderTime(time);
+      }
+    }
+  };
+
+  const scheduleReminder = async (time: Date) => {
+    // Cancel existing reminder
+    await Notifications.cancelScheduledNotificationAsync('journal-reminder');
+
+    // Schedule new daily reminder
+    await Notifications.scheduleNotificationAsync({
+      identifier: 'journal-reminder',
+      content: {
+        title: 'Our Journal',
+        body: "Time to complete today's journal entries!",
+        sound: true,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
+        hour: time.getHours(),
+        minute: time.getMinutes(),
+      },
+    });
+  };
+
+  const cancelReminder = async () => {
+    await Notifications.cancelScheduledNotificationAsync('journal-reminder');
+  };
+
+  const handleReminderToggle = async (enabled: boolean) => {
+    setReminderEnabled(enabled);
+    if (enabled) {
+      await scheduleReminder(reminderTime);
+    } else {
+      await cancelReminder();
+    }
+  };
+
+  const handleTimeChange = async (event: DateTimePickerEvent, selectedTime?: Date) => {
+    setShowTimePicker(Platform.OS === 'ios');
+    if (selectedTime) {
+      setReminderTime(selectedTime);
+      if (reminderEnabled) {
+        await scheduleReminder(selectedTime);
+      }
+    }
+  };
 
   // Member handlers
   const openMemberModal = (memberId?: string) => {
@@ -90,7 +175,6 @@ export default function SettingsScreen() {
       updateMember(editingMember, { name: memberName.trim(), color: memberColor });
     } else {
       addMember(memberName.trim(), memberColor);
-      // Auto-expand the newly added member (it will be the last one)
       setTimeout(() => {
         const newMember = members[members.length];
         if (newMember) {
@@ -101,13 +185,11 @@ export default function SettingsScreen() {
     setMemberModalVisible(false);
   };
 
-  // After adding member, expand it
   const handleAddMember = () => {
     if (!memberName.trim()) return;
     const prevLength = members.length;
     addMember(memberName.trim(), memberColor);
     setMemberModalVisible(false);
-    // Expand the new member after state updates
     setTimeout(() => {
       const store = useSettingsStore.getState();
       if (store.members.length > prevLength) {
@@ -147,7 +229,6 @@ export default function SettingsScreen() {
     }
     setSectionModalVisible(false);
 
-    // Auto-expand the new section
     if (!editingSection.sectionId) {
       setTimeout(() => {
         const store = useSettingsStore.getState();
@@ -209,6 +290,10 @@ export default function SettingsScreen() {
     }
   };
 
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   const renderMember = (member: FamilyMember) => {
     const isExpanded = expandedMemberId === member.id;
 
@@ -244,17 +329,10 @@ export default function SettingsScreen() {
         {isExpanded && (
           <View style={styles.memberContent}>
             <Divider style={styles.divider} />
-
-            {/* Sections */}
             <View style={styles.sectionsList}>
               <View style={styles.sectionHeader}>
                 <Text variant="labelLarge" style={{ color: theme.colors.primary }}>SECTIONS</Text>
-                <Button
-                  mode="text"
-                  compact
-                  icon="plus"
-                  onPress={() => openSectionModal(member.id)}
-                >
+                <Button mode="text" compact icon="plus" onPress={() => openSectionModal(member.id)}>
                   Add Section
                 </Button>
               </View>
@@ -304,50 +382,28 @@ export default function SettingsScreen() {
         {isExpanded && (
           <View style={styles.tasksContainer}>
             <Divider style={styles.taskDivider} />
-
             <View style={styles.tasksHeader}>
               <Text variant="labelMedium" style={{ color: theme.colors.secondary }}>TASKS</Text>
-              <Button
-                mode="text"
-                compact
-                icon="plus"
-                onPress={() => openTaskModal(member.id, section.id)}
-              >
+              <Button mode="text" compact icon="plus" onPress={() => openTaskModal(member.id, section.id)}>
                 Add Task
               </Button>
             </View>
 
             {section.tasks.length === 0 ? (
               <View style={styles.emptyTaskState}>
-                <Text variant="bodySmall" style={styles.emptyHint}>
-                  Add daily tasks to track
-                </Text>
+                <Text variant="bodySmall" style={styles.emptyHint}>Add daily tasks to track</Text>
               </View>
             ) : (
               section.tasks.map((task) => (
                 <View key={task.id} style={styles.taskRow}>
                   <View style={styles.taskInfo}>
-                    <MaterialCommunityIcons
-                      name={getTaskTypeIcon(task.type)}
-                      size={18}
-                      color={theme.colors.onSurfaceVariant}
-                    />
+                    <MaterialCommunityIcons name={getTaskTypeIcon(task.type)} size={18} color={theme.colors.onSurfaceVariant} />
                     <Text variant="bodyMedium" style={styles.taskName}>{task.name}</Text>
-                    {task.unit && (
-                      <Chip compact style={styles.unitChip} textStyle={styles.chipText}>{task.unit}</Chip>
-                    )}
+                    {task.unit && <Chip compact style={styles.unitChip} textStyle={styles.chipText}>{task.unit}</Chip>}
                   </View>
                   <View style={styles.taskActions}>
-                    <IconButton
-                      icon="pencil"
-                      size={16}
-                      onPress={() => openTaskModal(member.id, section.id, task.id)}
-                    />
-                    <IconButton
-                      icon="delete-outline"
-                      size={16}
-                      onPress={() => deleteTask(member.id, section.id, task.id)}
-                    />
+                    <IconButton icon="pencil" size={16} onPress={() => openTaskModal(member.id, section.id, task.id)} />
+                    <IconButton icon="delete-outline" size={16} onPress={() => deleteTask(member.id, section.id, task.id)} />
                   </View>
                 </View>
               ))
@@ -360,7 +416,12 @@ export default function SettingsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <KeyboardAwareScrollView
+        contentContainerStyle={styles.scrollContent}
+        enableOnAndroid={true}
+        enableAutomaticScroll={true}
+        extraScrollHeight={100}
+      >
         {/* Account Card */}
         <Card style={styles.accountCard}>
           <View style={styles.accountContent}>
@@ -371,27 +432,56 @@ export default function SettingsScreen() {
                 color={theme.colors.primary}
               />
               <View>
-                <Text variant="titleSmall">
-                  {isGuest ? 'Guest Mode' : userEmail}
-                </Text>
+                <Text variant="titleSmall">{isGuest ? 'Guest Mode' : userEmail}</Text>
                 <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                   {isGuest ? 'Data stored locally only' : 'Synced with Google Drive'}
                 </Text>
               </View>
             </View>
-            <Button mode="outlined" compact onPress={handleLogout}>
-              Sign Out
-            </Button>
+            <Button mode="outlined" compact onPress={handleLogout}>Sign Out</Button>
           </View>
         </Card>
+
+        {/* Daily Reminder Card */}
+        <Card style={styles.reminderCard}>
+          <View style={styles.reminderContent}>
+            <View style={styles.reminderHeader}>
+              <MaterialCommunityIcons name="bell-outline" size={24} color={theme.colors.primary} />
+              <View style={styles.reminderInfo}>
+                <Text variant="titleSmall">Daily Reminder</Text>
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  Get reminded to complete your journal
+                </Text>
+              </View>
+              <Switch value={reminderEnabled} onValueChange={handleReminderToggle} />
+            </View>
+
+            {reminderEnabled && (
+              <Pressable onPress={() => setShowTimePicker(true)} style={styles.timeSelector}>
+                <MaterialCommunityIcons name="clock-outline" size={20} color={theme.colors.primary} />
+                <Text variant="bodyLarge" style={{ color: theme.colors.primary, fontWeight: '600' }}>
+                  {formatTime(reminderTime)}
+                </Text>
+                <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.onSurfaceVariant} />
+              </Pressable>
+            )}
+          </View>
+        </Card>
+
+        {showTimePicker && (
+          <DateTimePicker
+            value={reminderTime}
+            mode="time"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={handleTimeChange}
+          />
+        )}
 
         {/* Members Section */}
         <View style={styles.membersSection}>
           <View style={styles.membersHeader}>
             <Text variant="titleLarge">Family Members</Text>
-            <Button mode="contained" icon="plus" onPress={() => openMemberModal()}>
-              Add Member
-            </Button>
+            <Button mode="contained" icon="plus" onPress={() => openMemberModal()}>Add Member</Button>
           </View>
 
           {members.length === 0 ? (
@@ -411,135 +501,57 @@ export default function SettingsScreen() {
             members.map(renderMember)
           )}
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* Member Modal */}
       <Portal>
-        <Modal
-          visible={memberModalVisible}
-          onDismiss={() => setMemberModalVisible(false)}
-          contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
-        >
-          <Text variant="headlineSmall" style={styles.modalTitle}>
-            {editingMember ? 'Edit Member' : 'Add Family Member'}
-          </Text>
-
-          <TextInput
-            label="Name"
-            value={memberName}
-            onChangeText={setMemberName}
-            style={styles.input}
-            mode="outlined"
-            autoFocus
-          />
-
+        <Modal visible={memberModalVisible} onDismiss={() => setMemberModalVisible(false)} contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}>
+          <Text variant="headlineSmall" style={styles.modalTitle}>{editingMember ? 'Edit Member' : 'Add Family Member'}</Text>
+          <TextInput label="Name" value={memberName} onChangeText={setMemberName} style={styles.input} mode="outlined" autoFocus />
           <Text variant="labelLarge" style={styles.colorLabel}>Choose Color</Text>
           <View style={styles.colorGrid}>
             {COLORS.map((color) => (
-              <Pressable
-                key={color}
-                onPress={() => setMemberColor(color)}
-                style={[
-                  styles.colorOption,
-                  { backgroundColor: color },
-                  memberColor === color && styles.colorOptionSelected,
-                ]}
-              >
-                {memberColor === color && (
-                  <MaterialCommunityIcons name="check" size={20} color="white" />
-                )}
+              <Pressable key={color} onPress={() => setMemberColor(color)} style={[styles.colorOption, { backgroundColor: color }, memberColor === color && styles.colorOptionSelected]}>
+                {memberColor === color && <MaterialCommunityIcons name="check" size={20} color="white" />}
               </Pressable>
             ))}
           </View>
-
           <View style={styles.modalActions}>
             <Button onPress={() => setMemberModalVisible(false)}>Cancel</Button>
-            <Button mode="contained" onPress={editingMember ? saveMember : handleAddMember}>
-              {editingMember ? 'Save' : 'Add Member'}
-            </Button>
+            <Button mode="contained" onPress={editingMember ? saveMember : handleAddMember}>{editingMember ? 'Save' : 'Add Member'}</Button>
           </View>
         </Modal>
       </Portal>
 
       {/* Section Modal */}
       <Portal>
-        <Modal
-          visible={sectionModalVisible}
-          onDismiss={() => setSectionModalVisible(false)}
-          contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
-        >
-          <Text variant="headlineSmall" style={styles.modalTitle}>
-            {editingSection?.sectionId ? 'Edit Section' : 'Add Section'}
-          </Text>
-
-          <TextInput
-            label="Section Name"
-            value={sectionName}
-            onChangeText={setSectionName}
-            placeholder="e.g., Morning Routine, Health, Learning"
-            style={styles.input}
-            mode="outlined"
-            autoFocus
-          />
-
+        <Modal visible={sectionModalVisible} onDismiss={() => setSectionModalVisible(false)} contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}>
+          <Text variant="headlineSmall" style={styles.modalTitle}>{editingSection?.sectionId ? 'Edit Section' : 'Add Section'}</Text>
+          <TextInput label="Section Name" value={sectionName} onChangeText={setSectionName} placeholder="e.g., Morning Routine, Health, Learning" style={styles.input} mode="outlined" autoFocus />
           <View style={styles.modalActions}>
             <Button onPress={() => setSectionModalVisible(false)}>Cancel</Button>
-            <Button mode="contained" onPress={handleAddSection}>
-              {editingSection?.sectionId ? 'Save' : 'Add Section'}
-            </Button>
+            <Button mode="contained" onPress={handleAddSection}>{editingSection?.sectionId ? 'Save' : 'Add Section'}</Button>
           </View>
         </Modal>
       </Portal>
 
       {/* Task Modal */}
       <Portal>
-        <Modal
-          visible={taskModalVisible}
-          onDismiss={() => setTaskModalVisible(false)}
-          contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
-        >
-          <Text variant="headlineSmall" style={styles.modalTitle}>
-            {editingTask?.taskId ? 'Edit Task' : 'Add Task'}
-          </Text>
-
-          <TextInput
-            label="Task Name"
-            value={taskName}
-            onChangeText={setTaskName}
-            placeholder="e.g., Brushed teeth, Read for 30 min"
-            style={styles.input}
-            mode="outlined"
-            autoFocus
-          />
-
+        <Modal visible={taskModalVisible} onDismiss={() => setTaskModalVisible(false)} contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}>
+          <Text variant="headlineSmall" style={styles.modalTitle}>{editingTask?.taskId ? 'Edit Task' : 'Add Task'}</Text>
+          <TextInput label="Task Name" value={taskName} onChangeText={setTaskName} placeholder="e.g., Brushed teeth, Read for 30 min" style={styles.input} mode="outlined" autoFocus />
           <Text variant="labelLarge" style={styles.typeLabel}>Task Type</Text>
-          <SegmentedButtons
-            value={taskType}
-            onValueChange={(value) => setTaskType(value as TaskType)}
-            buttons={[
-              { value: 'checkbox', label: 'Yes/No', icon: 'checkbox-marked-outline' },
-              { value: 'text', label: 'Text', icon: 'text' },
-              { value: 'numeric', label: 'Number', icon: 'numeric' },
-            ]}
-            style={styles.segmentedButtons}
-          />
-
+          <SegmentedButtons value={taskType} onValueChange={(value) => setTaskType(value as TaskType)} buttons={[
+            { value: 'checkbox', label: 'Yes/No', icon: 'checkbox-marked-outline' },
+            { value: 'text', label: 'Text', icon: 'text' },
+            { value: 'numeric', label: 'Number', icon: 'numeric' },
+          ]} style={styles.segmentedButtons} />
           {taskType === 'numeric' && (
-            <TextInput
-              label="Unit (optional)"
-              value={taskUnit}
-              onChangeText={setTaskUnit}
-              placeholder="e.g., minutes, glasses, pages"
-              style={styles.input}
-              mode="outlined"
-            />
+            <TextInput label="Unit (optional)" value={taskUnit} onChangeText={setTaskUnit} placeholder="e.g., minutes, glasses, pages" style={styles.input} mode="outlined" />
           )}
-
           <View style={styles.modalActions}>
             <Button onPress={() => setTaskModalVisible(false)}>Cancel</Button>
-            <Button mode="contained" onPress={saveTask}>
-              {editingTask?.taskId ? 'Save' : 'Add Task'}
-            </Button>
+            <Button mode="contained" onPress={saveTask}>{editingTask?.taskId ? 'Save' : 'Add Task'}</Button>
           </View>
         </Modal>
       </Portal>
@@ -553,10 +565,10 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 32,
+    paddingBottom: 40,
   },
   accountCard: {
-    marginBottom: 20,
+    marginBottom: 12,
   },
   accountContent: {
     flexDirection: 'row',
@@ -568,6 +580,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  reminderCard: {
+    marginBottom: 20,
+  },
+  reminderContent: {
+    padding: 16,
+  },
+  reminderHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  reminderInfo: {
+    flex: 1,
+  },
+  timeSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.08)',
   },
   membersSection: {
     gap: 12,

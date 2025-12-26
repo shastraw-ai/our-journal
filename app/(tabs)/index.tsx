@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { View, StyleSheet, Pressable, Platform, ScrollView, Keyboard } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import {
   Text,
   Card,
@@ -14,6 +15,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { format, addDays, subDays, parseISO, isToday } from 'date-fns';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { RichEditor, RichToolbar, actions } from 'react-native-pell-rich-editor';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { useEntriesStore } from '../../src/stores/entriesStore';
 import { useAuthStore } from '../../src/stores/authStore';
@@ -36,6 +38,7 @@ export default function HomeScreen() {
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const richEditorRef = useRef<RichEditor>(null);
 
   useEffect(() => {
     loadSettings();
@@ -370,15 +373,14 @@ export default function HomeScreen() {
       )}
 
       {/* Content */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      <KeyboardAwareScrollView
         style={styles.content}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 180 : 0}
-      >
-      <ScrollView
-        style={styles.scrollContent}
         contentContainerStyle={styles.contentContainer}
         keyboardShouldPersistTaps="handled"
+        enableOnAndroid={true}
+        enableAutomaticScroll={true}
+        extraScrollHeight={120}
+        showsVerticalScrollIndicator={true}
       >
         {selectedMember?.sections.length === 0 && (
           <Surface style={styles.emptySection} elevation={0}>
@@ -412,22 +414,41 @@ export default function HomeScreen() {
                 <MaterialCommunityIcons name="note-text-outline" size={20} color={selectedMember?.color} />
                 <Text variant="labelLarge" style={{ color: selectedMember?.color }}>Notes</Text>
               </View>
-              <TextInput
-                value={getSectionNotes(selectedSection.id)}
-                onChangeText={(text) => handleNotesChange(selectedSection.id, text)}
-                mode="outlined"
-                multiline
-                numberOfLines={4}
-                placeholder="Add notes for today..."
-                style={styles.notesInput}
-                outlineColor={theme.colors.outline}
-                activeOutlineColor={selectedMember?.color}
+              <RichToolbar
+                editor={richEditorRef}
+                actions={[
+                  actions.setBold,
+                  actions.setItalic,
+                  actions.setUnderline,
+                  actions.insertBulletsList,
+                  actions.insertOrderedList,
+                  actions.indent,
+                  actions.outdent,
+                ]}
+                iconTint={theme.colors.onSurface}
+                selectedIconTint={selectedMember?.color || theme.colors.primary}
+                style={[styles.richToolbar, { backgroundColor: theme.colors.surfaceVariant }]}
               />
+              <View style={[styles.editorContainer, { borderColor: theme.colors.outline }]}>
+                <RichEditor
+                  key={`${selectedSection.id}-${currentDate}`}
+                  ref={richEditorRef}
+                  initialContentHTML={getSectionNotes(selectedSection.id)}
+                  onChange={(html) => handleNotesChange(selectedSection.id, html)}
+                  placeholder="Add notes for today..."
+                  style={styles.richEditor}
+                  editorStyle={{
+                    backgroundColor: theme.colors.surface,
+                    color: theme.colors.onSurface,
+                    placeholderColor: theme.colors.onSurfaceVariant,
+                    contentCSSText: 'font-size: 16px; padding: 8px;',
+                  }}
+                />
+              </View>
             </Surface>
           </>
         )}
-      </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }
@@ -483,9 +504,6 @@ const styles = StyleSheet.create({
   },
   dateText: {
     fontWeight: '600',
-  },
-  scrollContent: {
-    flex: 1,
   },
   todayBadge: {
     paddingHorizontal: 12,
@@ -645,8 +663,17 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 14,
   },
-  notesInput: {
-    backgroundColor: 'transparent',
-    minHeight: 100,
+  richToolbar: {
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  editorContainer: {
+    borderWidth: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+    minHeight: 120,
+  },
+  richEditor: {
+    minHeight: 120,
   },
 });

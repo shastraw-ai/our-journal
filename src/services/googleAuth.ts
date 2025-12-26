@@ -94,7 +94,7 @@ export async function signOutGoogle(): Promise<void> {
 }
 
 export async function isSignedIn(): Promise<boolean> {
-  return await GoogleSignin.isSignedIn();
+  return await GoogleSignin.hasPreviousSignIn();
 }
 
 export async function getCurrentUser() {
