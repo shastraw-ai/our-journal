@@ -5,7 +5,7 @@ import {
   Text,
   Card,
   useTheme,
-  Switch,
+  Checkbox,
   TextInput,
   IconButton,
   ActivityIndicator,
@@ -144,13 +144,16 @@ export default function HomeScreen() {
     switch (task.type) {
       case 'checkbox':
         return (
-          <Surface key={task.id} style={styles.taskCard} elevation={1}>
-            <View style={styles.checkboxTask}>
-              <View style={styles.taskLabelRow}>
-                <MaterialCommunityIcons
-                  name={value === true ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'}
-                  size={24}
-                  color={value === true ? selectedMember?.color || theme.colors.primary : theme.colors.onSurfaceVariant}
+          <Pressable
+            key={task.id}
+            onPress={() => handleTaskChange(selectedSectionId, task.id, value !== true)}
+          >
+            <Surface style={styles.taskCard} elevation={1}>
+              <View style={styles.checkboxTask}>
+                <Checkbox
+                  status={value === true ? 'checked' : 'unchecked'}
+                  onPress={() => handleTaskChange(selectedSectionId, task.id, value !== true)}
+                  color={selectedMember?.color}
                 />
                 <Text
                   variant="bodyLarge"
@@ -162,13 +165,8 @@ export default function HomeScreen() {
                   {task.name}
                 </Text>
               </View>
-              <Switch
-                value={value === true}
-                onValueChange={(checked) => handleTaskChange(selectedSectionId, task.id, checked)}
-                color={selectedMember?.color}
-              />
-            </View>
-          </Surface>
+            </Surface>
+          </Pressable>
         );
 
       case 'text':
@@ -627,13 +625,6 @@ const styles = StyleSheet.create({
   checkboxTask: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  taskLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    flex: 1,
   },
   taskLabel: {
     flex: 1,

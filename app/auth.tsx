@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Image } from 'react-native';
 import { Button, Text, useTheme, ActivityIndicator, Surface } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -54,11 +54,9 @@ export default function AuthScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={styles.content}>
         <View style={styles.header}>
-          <MaterialCommunityIcons
-            name="book-heart-outline"
-            size={80}
-            color={theme.colors.primary}
-            style={styles.icon}
+          <Image
+            source={require('../assets/icon.png')}
+            style={styles.appIcon}
           />
           <Text variant="displaySmall" style={[styles.title, { color: theme.colors.primary }]}>
             Our Journal
@@ -141,8 +139,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 48,
   },
-  icon: {
+  appIcon: {
+    width: 100,
+    height: 100,
     marginBottom: 16,
+    borderRadius: 20,
   },
   title: {
     fontWeight: 'bold',

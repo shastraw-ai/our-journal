@@ -676,12 +676,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   taskCountChip: {
-    height: 24,
     backgroundColor: 'rgba(0,0,0,0.08)',
   },
   chipText: {
-    fontSize: 12,
-    color: '#333',
+    fontSize: 11,
+    lineHeight: 14,
+    marginVertical: 0,
   },
   tasksContainer: {
     paddingHorizontal: 12,
@@ -717,7 +717,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   unitChip: {
-    height: 22,
     backgroundColor: 'rgba(0,0,0,0.08)',
   },
   emptyState: {
