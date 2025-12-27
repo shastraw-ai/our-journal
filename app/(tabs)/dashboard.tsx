@@ -9,13 +9,14 @@ import {
 } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LineChart, BarChart } from 'react-native-chart-kit';
-import { format, subDays, parseISO, differenceInDays } from 'date-fns';
+import { format, subDays, parseISO, differenceInDays, startOfMonth, endOfMonth, subMonths, getDaysInMonth } from 'date-fns';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { useEntriesStore } from '../../src/stores/entriesStore';
-import { Task } from '../../src/types';
+import { Task, FamilyMember } from '../../src/types';
 
 const screenWidth = Dimensions.get('window').width;
 
+type DashboardView = 'charts' | 'rewards';
 type DateRange = '7' | '30' | '90' | '365';
 
 const DATE_RANGE_OPTIONS = [
@@ -25,11 +26,55 @@ const DATE_RANGE_OPTIONS = [
   { value: '365', label: 'Year', icon: 'calendar' },
 ];
 
+// Coin component for rewards display
+const CoinDisplay = ({ completed, total, color }: { completed: number; total: number; color: string }) => {
+  const theme = useTheme();
+  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const coinsToShow = Math.min(total, 10); // Show max 10 coins for visual
+  const completedCoins = Math.round((completed / total) * coinsToShow);
+
+  return (
+    <View style={styles.coinContainer}>
+      <View style={styles.coinsRow}>
+        {Array.from({ length: coinsToShow }).map((_, index) => (
+          <View key={index} style={styles.coinWrapper}>
+            <MaterialCommunityIcons
+              name="circle"
+              size={32}
+              color={index < completedCoins ? '#FFD700' : '#E0E0E0'}
+            />
+            <MaterialCommunityIcons
+              name="star-four-points"
+              size={14}
+              color={index < completedCoins ? '#FFA000' : '#BDBDBD'}
+              style={styles.coinInner}
+            />
+          </View>
+        ))}
+      </View>
+      <View style={styles.coinStats}>
+        <Text variant="headlineMedium" style={[styles.coinCount, { color }]}>
+          {completed}
+        </Text>
+        <Text variant="bodyMedium" style={styles.coinLabel}>
+          / {total} coins earned
+        </Text>
+      </View>
+      <View style={[styles.percentageBadge, { backgroundColor: color + '20' }]}>
+        <Text variant="titleMedium" style={{ color, fontWeight: '700' }}>
+          {percentage}%
+        </Text>
+      </View>
+    </View>
+  );
+};
+
 export default function DashboardScreen() {
   const theme = useTheme();
   const { members, loadSettings } = useSettingsStore();
   const { getEntriesForRange, loadEntriesForMonth } = useEntriesStore();
 
+  const [dashboardView, setDashboardView] = useState<DashboardView>('charts');
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('7');
@@ -66,7 +111,60 @@ export default function DashboardScreen() {
     }
   }, [selectedMemberId, members]);
 
+  // Load previous month entries for rewards
+  useEffect(() => {
+    const prevMonth = subMonths(new Date(), 1);
+    loadEntriesForMonth(format(prevMonth, 'yyyy-MM'));
+  }, []);
+
   const selectedMember = members.find((m) => m.id === selectedMemberId);
+
+  // Calculate rewards for all members for previous month
+  const rewardsData = useMemo(() => {
+    const prevMonth = subMonths(new Date(), 1);
+    const prevMonthStr = format(prevMonth, 'yyyy-MM');
+    const daysInPrevMonth = getDaysInMonth(prevMonth);
+    const startDate = format(startOfMonth(prevMonth), 'yyyy-MM-dd');
+    const endDate = format(endOfMonth(prevMonth), 'yyyy-MM-dd');
+
+    return members.map((member) => {
+      const entries = getEntriesForRange(member.id, startDate, endDate);
+
+      // Count total checkbox tasks across all sections
+      let totalCheckboxTasks = 0;
+      member.sections.forEach((section) => {
+        totalCheckboxTasks += section.tasks.filter((t) => t.type === 'checkbox').length;
+      });
+
+      // Total possible coins = checkbox tasks * days in month
+      const totalPossibleCoins = totalCheckboxTasks * daysInPrevMonth;
+
+      // Count completed tasks
+      let completedCoins = 0;
+      entries.forEach((entry) => {
+        entry.sectionEntries.forEach((sectionEntry) => {
+          const section = member.sections.find((s) => s.id === sectionEntry.sectionId);
+          if (section) {
+            const checkboxTasks = section.tasks.filter((t) => t.type === 'checkbox');
+            checkboxTasks.forEach((task) => {
+              const response = sectionEntry.taskResponses.find((tr) => tr.taskId === task.id);
+              if (response?.value === true) {
+                completedCoins++;
+              }
+            });
+          }
+        });
+      });
+
+      return {
+        member,
+        completedCoins,
+        totalPossibleCoins,
+        entriesCount: entries.length,
+        month: format(prevMonth, 'MMMM yyyy'),
+      };
+    });
+  }, [members, getEntriesForRange]);
   const selectedSection = selectedMember?.sections.find((s) => s.id === selectedSectionId);
 
   // Get all entries for the selected member (to find first entry date)
@@ -278,42 +376,86 @@ export default function DashboardScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {/* Member Tabs */}
-      <Surface style={styles.tabsContainer} elevation={1}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabsContent}
+      {/* View Toggle - Charts vs Rewards */}
+      <View style={styles.viewToggleContainer}>
+        <Pressable
+          onPress={() => setDashboardView('charts')}
+          style={[
+            styles.viewToggleTab,
+            dashboardView === 'charts' && { backgroundColor: theme.colors.primaryContainer },
+          ]}
         >
-          {members.map((member) => {
-            const isSelected = selectedMemberId === member.id;
-            return (
-              <Pressable
-                key={member.id}
-                onPress={() => setSelectedMemberId(member.id)}
-                style={[
-                  styles.memberTab,
-                  isSelected && { backgroundColor: member.color + '20', borderColor: member.color },
-                ]}
-              >
-                <View style={[styles.memberDot, { backgroundColor: member.color }]} />
-                <Text
-                  variant="labelLarge"
+          <MaterialCommunityIcons
+            name="chart-line"
+            size={20}
+            color={dashboardView === 'charts' ? theme.colors.primary : theme.colors.onSurfaceVariant}
+          />
+          <Text
+            variant="labelLarge"
+            style={{ color: dashboardView === 'charts' ? theme.colors.primary : theme.colors.onSurfaceVariant }}
+          >
+            Charts
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setDashboardView('rewards')}
+          style={[
+            styles.viewToggleTab,
+            dashboardView === 'rewards' && { backgroundColor: '#FFF8E1' },
+          ]}
+        >
+          <MaterialCommunityIcons
+            name="star-circle"
+            size={20}
+            color={dashboardView === 'rewards' ? '#FFA000' : theme.colors.onSurfaceVariant}
+          />
+          <Text
+            variant="labelLarge"
+            style={{ color: dashboardView === 'rewards' ? '#FFA000' : theme.colors.onSurfaceVariant }}
+          >
+            Rewards
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* Member Tabs - Only show for Charts view */}
+      {dashboardView === 'charts' && (
+        <Surface style={styles.tabsContainer} elevation={1}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabsContent}
+          >
+            {members.map((member) => {
+              const isSelected = selectedMemberId === member.id;
+              return (
+                <Pressable
+                  key={member.id}
+                  onPress={() => setSelectedMemberId(member.id)}
                   style={[
-                    styles.memberTabText,
-                    isSelected && { color: member.color, fontWeight: '600' }
+                    styles.memberTab,
+                    isSelected && { backgroundColor: member.color + '20', borderColor: member.color },
                   ]}
                 >
-                  {member.name}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </Surface>
+                  <View style={[styles.memberDot, { backgroundColor: member.color }]} />
+                  <Text
+                    variant="labelLarge"
+                    style={[
+                      styles.memberTabText,
+                      isSelected && { color: member.color, fontWeight: '600' }
+                    ]}
+                  >
+                    {member.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </Surface>
+      )}
 
-      {/* Section Tabs */}
-      {selectedMember && selectedMember.sections.length > 0 && (
+      {/* Section Tabs - Only show for Charts view */}
+      {dashboardView === 'charts' && selectedMember && selectedMember.sections.length > 0 && (
         <View style={styles.sectionTabsContainer}>
           <ScrollView
             horizontal
@@ -351,8 +493,9 @@ export default function DashboardScreen() {
         </View>
       )}
 
-      {/* Date Range Selector */}
-      <View style={styles.dateRangeContainer}>
+      {/* Date Range Selector - Only show for Charts view */}
+      {dashboardView === 'charts' && (
+        <View style={styles.dateRangeContainer}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -391,7 +534,10 @@ export default function DashboardScreen() {
           })}
         </ScrollView>
       </View>
+      )}
 
+      {/* Charts View Content */}
+      {dashboardView === 'charts' && (
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {!selectedSection && (
           <Surface style={styles.emptySection} elevation={0}>
@@ -537,6 +683,65 @@ export default function DashboardScreen() {
           </Surface>
         )}
       </ScrollView>
+      )}
+
+      {/* Rewards View Content */}
+      {dashboardView === 'rewards' && (
+        <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+          {/* Rewards Header */}
+          <Surface style={styles.rewardsHeader} elevation={1}>
+            <MaterialCommunityIcons name="trophy" size={32} color="#FFD700" />
+            <Text variant="headlineSmall" style={styles.rewardsTitle}>Monthly Rewards</Text>
+            <Text variant="bodyMedium" style={styles.rewardsSubtitle}>
+              {rewardsData[0]?.month || 'Previous Month'}
+            </Text>
+          </Surface>
+
+          {/* Member Rewards Cards */}
+          {rewardsData.map(({ member, completedCoins, totalPossibleCoins, entriesCount }) => (
+            <Surface key={member.id} style={styles.rewardCard} elevation={2}>
+              <View style={styles.rewardCardHeader}>
+                <View style={[styles.memberDot, { backgroundColor: member.color, width: 14, height: 14, borderRadius: 7 }]} />
+                <Text variant="titleMedium" style={styles.rewardMemberName}>{member.name}</Text>
+              </View>
+
+              {totalPossibleCoins > 0 ? (
+                <CoinDisplay
+                  completed={completedCoins}
+                  total={totalPossibleCoins}
+                  color={member.color}
+                />
+              ) : (
+                <View style={styles.noRewardsContainer}>
+                  <MaterialCommunityIcons name="star-off-outline" size={40} color={theme.colors.onSurfaceVariant} />
+                  <Text variant="bodyMedium" style={styles.noRewardsText}>
+                    No checkbox tasks configured
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.rewardMeta}>
+                <View style={styles.rewardMetaItem}>
+                  <MaterialCommunityIcons name="calendar-check" size={16} color={theme.colors.onSurfaceVariant} />
+                  <Text variant="bodySmall" style={styles.rewardMetaText}>
+                    {entriesCount} days logged
+                  </Text>
+                </View>
+              </View>
+            </Surface>
+          ))}
+
+          {members.length === 0 && (
+            <Surface style={styles.noDataCard} elevation={0}>
+              <MaterialCommunityIcons name="account-group-outline" size={56} color={theme.colors.onSurfaceVariant} />
+              <Text variant="titleMedium" style={styles.noDataTitle}>No Members</Text>
+              <Text variant="bodyMedium" style={styles.noDataText}>
+                Add family members in Settings to track rewards.
+              </Text>
+            </Surface>
+          )}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -732,5 +937,115 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.6,
     lineHeight: 22,
+  },
+  // View Toggle Styles
+  viewToggleContainer: {
+    flexDirection: 'row',
+    padding: 12,
+    gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+  },
+  viewToggleTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: 'transparent',
+  },
+  // Coin Display Styles
+  coinContainer: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  coinsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: 16,
+  },
+  coinWrapper: {
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  coinInner: {
+    position: 'absolute',
+  },
+  coinStats: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  coinCount: {
+    fontWeight: '700',
+  },
+  coinLabel: {
+    opacity: 0.6,
+  },
+  percentageBadge: {
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  // Rewards Styles
+  rewardsHeader: {
+    alignItems: 'center',
+    padding: 24,
+    borderRadius: 16,
+    backgroundColor: '#FFFDE7',
+  },
+  rewardsTitle: {
+    marginTop: 8,
+    fontWeight: '700',
+    color: '#F57F17',
+  },
+  rewardsSubtitle: {
+    opacity: 0.7,
+    marginTop: 4,
+  },
+  rewardCard: {
+    borderRadius: 16,
+    padding: 20,
+    backgroundColor: '#fff',
+  },
+  rewardCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  rewardMemberName: {
+    fontWeight: '600',
+  },
+  noRewardsContainer: {
+    alignItems: 'center',
+    padding: 24,
+  },
+  noRewardsText: {
+    marginTop: 8,
+    opacity: 0.6,
+  },
+  rewardMeta: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+  },
+  rewardMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  rewardMetaText: {
+    opacity: 0.6,
   },
 });
