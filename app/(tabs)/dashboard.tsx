@@ -111,21 +111,23 @@ export default function DashboardScreen() {
     }
   }, [selectedMemberId, members]);
 
-  // Load previous month entries for rewards
+  // Load current and previous month entries for rewards
   useEffect(() => {
-    const prevMonth = subMonths(new Date(), 1);
+    const today = new Date();
+    const prevMonth = subMonths(today, 1);
+    loadEntriesForMonth(format(today, 'yyyy-MM'));
     loadEntriesForMonth(format(prevMonth, 'yyyy-MM'));
   }, []);
 
   const selectedMember = members.find((m) => m.id === selectedMemberId);
 
-  // Calculate rewards for all members for previous month
-  const rewardsData = useMemo(() => {
-    const prevMonth = subMonths(new Date(), 1);
-    const prevMonthStr = format(prevMonth, 'yyyy-MM');
-    const daysInPrevMonth = getDaysInMonth(prevMonth);
-    const startDate = format(startOfMonth(prevMonth), 'yyyy-MM-dd');
-    const endDate = format(endOfMonth(prevMonth), 'yyyy-MM-dd');
+  // Calculate rewards for all members
+  const calculateMonthRewards = (targetMonth: Date, daysToCount?: number) => {
+    const daysInMonth = daysToCount ?? getDaysInMonth(targetMonth);
+    const startDate = format(startOfMonth(targetMonth), 'yyyy-MM-dd');
+    const endDate = daysToCount
+      ? format(targetMonth, 'yyyy-MM-dd') // Current month: up to today
+      : format(endOfMonth(targetMonth), 'yyyy-MM-dd'); // Previous month: full month
 
     return members.map((member) => {
       const entries = getEntriesForRange(member.id, startDate, endDate);
@@ -136,8 +138,8 @@ export default function DashboardScreen() {
         totalCheckboxTasks += section.tasks.filter((t) => t.type === 'checkbox').length;
       });
 
-      // Total possible coins = checkbox tasks * days in month
-      const totalPossibleCoins = totalCheckboxTasks * daysInPrevMonth;
+      // Total possible coins = checkbox tasks * days
+      const totalPossibleCoins = totalCheckboxTasks * daysInMonth;
 
       // Count completed tasks
       let completedCoins = 0;
@@ -161,9 +163,29 @@ export default function DashboardScreen() {
         completedCoins,
         totalPossibleCoins,
         entriesCount: entries.length,
-        month: format(prevMonth, 'MMMM yyyy'),
       };
     });
+  };
+
+  // Previous month rewards
+  const prevMonthRewardsData = useMemo(() => {
+    const prevMonth = subMonths(new Date(), 1);
+    return {
+      month: format(prevMonth, 'MMMM yyyy'),
+      data: calculateMonthRewards(prevMonth),
+    };
+  }, [members, getEntriesForRange]);
+
+  // Current month rewards (so far)
+  const currentMonthRewardsData = useMemo(() => {
+    const today = new Date();
+    const dayOfMonth = today.getDate();
+    return {
+      month: format(today, 'MMMM yyyy'),
+      daysElapsed: dayOfMonth,
+      totalDays: getDaysInMonth(today),
+      data: calculateMonthRewards(today, dayOfMonth),
+    };
   }, [members, getEntriesForRange]);
   const selectedSection = selectedMember?.sections.find((s) => s.id === selectedSectionId);
 
@@ -688,18 +710,68 @@ export default function DashboardScreen() {
       {/* Rewards View Content */}
       {dashboardView === 'rewards' && (
         <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-          {/* Rewards Header */}
-          <Surface style={styles.rewardsHeader} elevation={1}>
-            <MaterialCommunityIcons name="trophy" size={32} color="#FFD700" />
-            <Text variant="headlineSmall" style={styles.rewardsTitle}>Monthly Rewards</Text>
+          {/* Current Month Section */}
+          <Surface style={[styles.rewardsHeader, { backgroundColor: '#E3F2FD' }]} elevation={1}>
+            <MaterialCommunityIcons name="calendar-clock" size={32} color="#1976D2" />
+            <Text variant="headlineSmall" style={[styles.rewardsTitle, { color: '#1565C0' }]}>
+              {currentMonthRewardsData.month}
+            </Text>
             <Text variant="bodyMedium" style={styles.rewardsSubtitle}>
-              {rewardsData[0]?.month || 'Previous Month'}
+              Day {currentMonthRewardsData.daysElapsed} of {currentMonthRewardsData.totalDays} • In Progress
             </Text>
           </Surface>
 
-          {/* Member Rewards Cards */}
-          {rewardsData.map(({ member, completedCoins, totalPossibleCoins, entriesCount }) => (
-            <Surface key={member.id} style={styles.rewardCard} elevation={2}>
+          {/* Current Month Member Cards */}
+          {currentMonthRewardsData.data.map(({ member, completedCoins, totalPossibleCoins, entriesCount }) => (
+            <Surface key={`current-${member.id}`} style={styles.rewardCard} elevation={2}>
+              <View style={styles.rewardCardHeader}>
+                <View style={[styles.memberDot, { backgroundColor: member.color, width: 14, height: 14, borderRadius: 7 }]} />
+                <Text variant="titleMedium" style={styles.rewardMemberName}>{member.name}</Text>
+                <View style={[styles.inProgressBadge]}>
+                  <Text variant="labelSmall" style={styles.inProgressText}>In Progress</Text>
+                </View>
+              </View>
+
+              {totalPossibleCoins > 0 ? (
+                <CoinDisplay
+                  completed={completedCoins}
+                  total={totalPossibleCoins}
+                  color={member.color}
+                />
+              ) : (
+                <View style={styles.noRewardsContainer}>
+                  <MaterialCommunityIcons name="star-off-outline" size={40} color={theme.colors.onSurfaceVariant} />
+                  <Text variant="bodyMedium" style={styles.noRewardsText}>
+                    No checkbox tasks configured
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.rewardMeta}>
+                <View style={styles.rewardMetaItem}>
+                  <MaterialCommunityIcons name="calendar-check" size={16} color={theme.colors.onSurfaceVariant} />
+                  <Text variant="bodySmall" style={styles.rewardMetaText}>
+                    {entriesCount} of {currentMonthRewardsData.daysElapsed} days logged
+                  </Text>
+                </View>
+              </View>
+            </Surface>
+          ))}
+
+          {/* Previous Month Section */}
+          <Surface style={styles.rewardsHeader} elevation={1}>
+            <MaterialCommunityIcons name="trophy" size={32} color="#FFD700" />
+            <Text variant="headlineSmall" style={styles.rewardsTitle}>
+              {prevMonthRewardsData.month}
+            </Text>
+            <Text variant="bodyMedium" style={styles.rewardsSubtitle}>
+              Final Results
+            </Text>
+          </Surface>
+
+          {/* Previous Month Member Cards */}
+          {prevMonthRewardsData.data.map(({ member, completedCoins, totalPossibleCoins, entriesCount }) => (
+            <Surface key={`prev-${member.id}`} style={styles.rewardCard} elevation={2}>
               <View style={styles.rewardCardHeader}>
                 <View style={[styles.memberDot, { backgroundColor: member.color, width: 14, height: 14, borderRadius: 7 }]} />
                 <Text variant="titleMedium" style={styles.rewardMemberName}>{member.name}</Text>
@@ -1047,5 +1119,16 @@ const styles = StyleSheet.create({
   },
   rewardMetaText: {
     opacity: 0.6,
+  },
+  inProgressBadge: {
+    marginLeft: 'auto',
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  inProgressText: {
+    color: '#1976D2',
+    fontWeight: '600',
   },
 });
