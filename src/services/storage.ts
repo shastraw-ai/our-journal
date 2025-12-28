@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 import { googleDriveService } from './googleDrive';
 import { AppSettings, MonthlyEntries } from '../types';
 
@@ -137,6 +138,42 @@ class StorageService {
     } catch (error) {
       console.error('Sync from cloud failed:', error);
       throw error;
+    }
+  }
+
+  // Clear all app data (local + cloud)
+  async clearAllData(): Promise<{ success: boolean; error?: string }> {
+    try {
+      // 1. Cancel all scheduled notifications
+      await Notifications.cancelAllScheduledNotificationsAsync();
+
+      // 2. Clear local storage
+      const keys = await AsyncStorage.getAllKeys();
+      const appKeys = keys.filter(
+        (k) => k === 'app_settings' || k.startsWith('entries_')
+      );
+      if (appKeys.length > 0) {
+        await AsyncStorage.multiRemove(appKeys);
+      }
+
+      // 3. Delete Google Drive folder if online
+      if (this.isOnline) {
+        const driveSuccess = await googleDriveService.deleteAppFolder();
+        if (!driveSuccess) {
+          return {
+            success: false,
+            error: 'Failed to delete data from Google Drive',
+          };
+        }
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Clear all data failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
   }
 }

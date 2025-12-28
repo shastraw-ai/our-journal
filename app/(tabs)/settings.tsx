@@ -21,7 +21,9 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as Notifications from 'expo-notifications';
 import { useSettingsStore } from '../../src/stores/settingsStore';
+import { useEntriesStore } from '../../src/stores/entriesStore';
 import { useAuthStore } from '../../src/stores/authStore';
+import { storageService } from '../../src/services/storage';
 import { TaskType, FamilyMember, Section, DayOfWeek } from '../../src/types';
 import { getScheduleDescription } from '../../src/utils/taskScheduleUtils';
 import { router } from 'expo-router';
@@ -46,7 +48,8 @@ const COLORS = [
 
 export default function SettingsScreen() {
   const theme = useTheme();
-  const { members, loadSettings, addMember, updateMember, deleteMember, addSection, updateSection, deleteSection, addTask, updateTask, deleteTask } = useSettingsStore();
+  const { members, loadSettings, addMember, updateMember, deleteMember, addSection, updateSection, deleteSection, addTask, updateTask, deleteTask, resetStore: resetSettingsStore } = useSettingsStore();
+  const { resetStore: resetEntriesStore } = useEntriesStore();
   const { isGuest, userEmail, logout } = useAuthStore();
 
   // Modal states
@@ -82,6 +85,11 @@ export default function SettingsScreen() {
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [reminderTime, setReminderTime] = useState(new Date(new Date().setHours(20, 0, 0, 0)));
   const [showTimePicker, setShowTimePicker] = useState(false);
+
+  // Clean Slate states
+  const [cleanSlateModalVisible, setCleanSlateModalVisible] = useState(false);
+  const [cleanSlateConfirmText, setCleanSlateConfirmText] = useState('');
+  const [cleanSlateLoading, setCleanSlateLoading] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -342,6 +350,31 @@ export default function SettingsScreen() {
     router.replace('/auth');
   };
 
+  const handleCleanSlate = async () => {
+    if (cleanSlateConfirmText !== 'DELETE') return;
+
+    setCleanSlateLoading(true);
+    try {
+      const result = await storageService.clearAllData();
+
+      if (result.success) {
+        // Reset in-memory stores
+        resetSettingsStore();
+        resetEntriesStore();
+
+        // Close modal and reset state
+        setCleanSlateModalVisible(false);
+        setCleanSlateConfirmText('');
+      } else {
+        console.error('Clean slate failed:', result.error);
+      }
+    } catch (error) {
+      console.error('Clean slate error:', error);
+    } finally {
+      setCleanSlateLoading(false);
+    }
+  };
+
   const getTaskTypeIcon = (type: TaskType) => {
     switch (type) {
       case 'checkbox': return 'checkbox-marked-outline';
@@ -543,6 +576,29 @@ export default function SettingsScreen() {
           />
         )}
 
+        {/* Clean Slate Card */}
+        <Card style={[styles.cleanSlateCard, { borderColor: theme.colors.error }]}>
+          <View style={styles.cleanSlateContent}>
+            <View style={styles.cleanSlateInfo}>
+              <MaterialCommunityIcons name="delete-forever" size={24} color={theme.colors.error} />
+              <View style={styles.cleanSlateText}>
+                <Text variant="titleSmall" style={{ color: theme.colors.error }}>Start a Clean Slate</Text>
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  Delete all data and start over
+                </Text>
+              </View>
+            </View>
+            <Button
+              mode="outlined"
+              textColor={theme.colors.error}
+              style={{ borderColor: theme.colors.error }}
+              onPress={() => setCleanSlateModalVisible(true)}
+            >
+              Reset
+            </Button>
+          </View>
+        </Card>
+
         {/* Members Section */}
         <View style={styles.membersSection}>
           <View style={styles.membersHeader}>
@@ -710,6 +766,89 @@ export default function SettingsScreen() {
           onChange={handleTaskTimeChange}
         />
       )}
+
+      {/* Clean Slate Modal */}
+      <Portal>
+        <Modal
+          visible={cleanSlateModalVisible}
+          onDismiss={() => {
+            if (!cleanSlateLoading) {
+              setCleanSlateModalVisible(false);
+              setCleanSlateConfirmText('');
+            }
+          }}
+          contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
+        >
+          <View style={styles.cleanSlateModalHeader}>
+            <MaterialCommunityIcons name="alert-circle" size={48} color={theme.colors.error} />
+            <Text variant="headlineSmall" style={[styles.modalTitle, { color: theme.colors.error }]}>
+              Delete All Data?
+            </Text>
+          </View>
+
+          <Text variant="bodyMedium" style={styles.cleanSlateWarning}>
+            This will permanently delete all your data including:
+          </Text>
+
+          <View style={styles.cleanSlateList}>
+            <View style={styles.cleanSlateListItem}>
+              <MaterialCommunityIcons name="account-group" size={20} color={theme.colors.onSurfaceVariant} />
+              <Text variant="bodyMedium">All family members and their settings</Text>
+            </View>
+            <View style={styles.cleanSlateListItem}>
+              <MaterialCommunityIcons name="clipboard-text" size={20} color={theme.colors.onSurfaceVariant} />
+              <Text variant="bodyMedium">All tasks and sections</Text>
+            </View>
+            <View style={styles.cleanSlateListItem}>
+              <MaterialCommunityIcons name="book-open-variant" size={20} color={theme.colors.onSurfaceVariant} />
+              <Text variant="bodyMedium">All journal entries and notes</Text>
+            </View>
+            {!isGuest && (
+              <View style={styles.cleanSlateListItem}>
+                <MaterialCommunityIcons name="google-drive" size={20} color={theme.colors.onSurfaceVariant} />
+                <Text variant="bodyMedium">Data stored in Google Drive</Text>
+              </View>
+            )}
+          </View>
+
+          <Text variant="bodyMedium" style={styles.cleanSlateConfirmLabel}>
+            Type <Text style={{ fontWeight: 'bold', color: theme.colors.error }}>DELETE</Text> to confirm:
+          </Text>
+
+          <TextInput
+            value={cleanSlateConfirmText}
+            onChangeText={setCleanSlateConfirmText}
+            mode="outlined"
+            placeholder="Type DELETE"
+            autoCapitalize="characters"
+            style={styles.cleanSlateInput}
+            outlineColor={theme.colors.error}
+            activeOutlineColor={theme.colors.error}
+            disabled={cleanSlateLoading}
+          />
+
+          <View style={styles.modalActions}>
+            <Button
+              onPress={() => {
+                setCleanSlateModalVisible(false);
+                setCleanSlateConfirmText('');
+              }}
+              disabled={cleanSlateLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor={theme.colors.error}
+              onPress={handleCleanSlate}
+              disabled={cleanSlateConfirmText !== 'DELETE' || cleanSlateLoading}
+              loading={cleanSlateLoading}
+            >
+              Delete Everything
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
     </View>
   );
 }
@@ -1021,5 +1160,47 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     backgroundColor: 'rgba(0,0,0,0.04)',
     borderRadius: 8,
+  },
+  cleanSlateCard: {
+    marginBottom: 20,
+    borderWidth: 1,
+  },
+  cleanSlateContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+  },
+  cleanSlateInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  cleanSlateText: {
+    flex: 1,
+  },
+  cleanSlateModalHeader: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  cleanSlateWarning: {
+    marginBottom: 16,
+    opacity: 0.8,
+  },
+  cleanSlateList: {
+    marginBottom: 20,
+    gap: 12,
+  },
+  cleanSlateListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  cleanSlateConfirmLabel: {
+    marginBottom: 8,
+  },
+  cleanSlateInput: {
+    marginBottom: 16,
   },
 });

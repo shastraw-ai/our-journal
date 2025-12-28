@@ -34,6 +34,9 @@ interface SettingsStore {
   saveSettings: () => Promise<void>;
   importSettings: (settings: AppSettings) => void;
   exportSettings: () => AppSettings;
+
+  // Reset
+  resetStore: () => void;
 }
 
 const STORAGE_KEY = 'app_settings';
@@ -248,5 +251,13 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       members: state.members,
       lastModified: state.lastModified || new Date().toISOString(),
     };
+  },
+
+  resetStore: () => {
+    set({
+      members: [],
+      isLoading: false,
+      lastModified: null,
+    });
   },
 }));

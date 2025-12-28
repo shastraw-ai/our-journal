@@ -34,6 +34,9 @@ interface EntriesStore {
 
   // For dashboard - get entries for date range
   getEntriesForRange: (memberId: string, startDate: string, endDate: string) => DailyEntry[];
+
+  // Reset
+  resetStore: () => void;
 }
 
 const getMonthKey = (date: string) => format(parseISO(date), 'yyyy-MM');
@@ -236,5 +239,13 @@ export const useEntriesStore = create<EntriesStore>((set, get) => ({
     });
 
     return result.sort((a, b) => a.date.localeCompare(b.date));
+  },
+
+  resetStore: () => {
+    set({
+      entries: new Map(),
+      isLoading: false,
+      currentDate: format(new Date(), 'yyyy-MM-dd'),
+    });
   },
 }));

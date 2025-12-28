@@ -215,6 +215,38 @@ class GoogleDriveService {
       return [];
     }
   }
+
+  async deleteAppFolder(): Promise<boolean> {
+    try {
+      // Find the app folder
+      const query = `name='${APP_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+      const searchResponse = await this.request(
+        `${DRIVE_API_BASE}/files?q=${encodeURIComponent(query)}&fields=files(id)`
+      );
+      const searchResult = await searchResponse.json();
+
+      if (!searchResult.files || searchResult.files.length === 0) {
+        // Folder doesn't exist, nothing to delete
+        return true;
+      }
+
+      const folderId = searchResult.files[0].id;
+
+      // Delete the folder (this also deletes all contents)
+      await this.request(`${DRIVE_API_BASE}/files/${folderId}`, {
+        method: 'DELETE',
+      });
+
+      // Reset cached folder IDs
+      this.appFolderId = null;
+      this.entriesFolderId = null;
+
+      return true;
+    } catch (error) {
+      console.error('Failed to delete app folder from Drive:', error);
+      return false;
+    }
+  }
 }
 
 export const googleDriveService = new GoogleDriveService();
