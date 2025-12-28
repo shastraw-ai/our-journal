@@ -9,10 +9,11 @@ import {
 } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LineChart, BarChart } from 'react-native-chart-kit';
-import { format, subDays, parseISO, differenceInDays, startOfMonth, endOfMonth, subMonths, getDaysInMonth } from 'date-fns';
+import { format, subDays, parseISO, differenceInDays, startOfMonth, endOfMonth, subMonths, getDaysInMonth, eachDayOfInterval } from 'date-fns';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { useEntriesStore } from '../../src/stores/entriesStore';
 import { Task, FamilyMember } from '../../src/types';
+import { isTaskVisibleOnDate, getVisibleTasks } from '../../src/utils/taskScheduleUtils';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -121,37 +122,49 @@ export default function DashboardScreen() {
 
   const selectedMember = members.find((m) => m.id === selectedMemberId);
 
-  // Calculate rewards for all members
+  // Calculate rewards for all members (schedule-aware)
   const calculateMonthRewards = (targetMonth: Date, daysToCount?: number) => {
-    const daysInMonth = daysToCount ?? getDaysInMonth(targetMonth);
-    const startDate = format(startOfMonth(targetMonth), 'yyyy-MM-dd');
-    const endDate = daysToCount
-      ? format(targetMonth, 'yyyy-MM-dd') // Current month: up to today
-      : format(endOfMonth(targetMonth), 'yyyy-MM-dd'); // Previous month: full month
+    const monthStart = startOfMonth(targetMonth);
+    const monthEnd = daysToCount
+      ? targetMonth  // Current month: up to today
+      : endOfMonth(targetMonth);  // Previous month: full month
+
+    const startDate = format(monthStart, 'yyyy-MM-dd');
+    const endDate = format(monthEnd, 'yyyy-MM-dd');
+
+    // Get all dates in the range
+    const datesInRange = eachDayOfInterval({ start: monthStart, end: monthEnd })
+      .map(d => format(d, 'yyyy-MM-dd'));
 
     return members.map((member) => {
       const entries = getEntriesForRange(member.id, startDate, endDate);
 
-      // Count total checkbox tasks across all sections
-      let totalCheckboxTasks = 0;
-      member.sections.forEach((section) => {
-        totalCheckboxTasks += section.tasks.filter((t) => t.type === 'checkbox').length;
+      // Calculate total possible coins (accounting for schedules per day)
+      let totalPossibleCoins = 0;
+      datesInRange.forEach(date => {
+        member.sections.forEach((section) => {
+          section.tasks.forEach(task => {
+            // Only count checkbox tasks that are visible on this date
+            if (task.type === 'checkbox' && isTaskVisibleOnDate(task, date)) {
+              totalPossibleCoins++;
+            }
+          });
+        });
       });
 
-      // Total possible coins = checkbox tasks * days
-      const totalPossibleCoins = totalCheckboxTasks * daysInMonth;
-
-      // Count completed tasks
+      // Count completed tasks (only for scheduled days)
       let completedCoins = 0;
       entries.forEach((entry) => {
         entry.sectionEntries.forEach((sectionEntry) => {
           const section = member.sections.find((s) => s.id === sectionEntry.sectionId);
           if (section) {
-            const checkboxTasks = section.tasks.filter((t) => t.type === 'checkbox');
-            checkboxTasks.forEach((task) => {
-              const response = sectionEntry.taskResponses.find((tr) => tr.taskId === task.id);
-              if (response?.value === true) {
-                completedCoins++;
+            section.tasks.forEach((task) => {
+              // Only count if task is checkbox AND visible on this date
+              if (task.type === 'checkbox' && isTaskVisibleOnDate(task, entry.date)) {
+                const response = sectionEntry.taskResponses.find((tr) => tr.taskId === task.id);
+                if (response?.value === true) {
+                  completedCoins++;
+                }
               }
             });
           }
@@ -239,12 +252,12 @@ export default function DashboardScreen() {
     return Math.min(requestedDays, daysSinceFirstEntry);
   }, [firstEntryDate, dateRange]);
 
-  // Calculate checkbox task completion data - only from first entry date
+  // Calculate checkbox task completion data - only from first entry date (schedule-aware)
   const checkboxData = useMemo(() => {
     if (!selectedSection || !firstEntryDate || effectiveDays === 0) return null;
 
-    const checkboxTasks = selectedSection.tasks.filter((t) => t.type === 'checkbox');
-    if (checkboxTasks.length === 0) return null;
+    const allCheckboxTasks = selectedSection.tasks.filter((t) => t.type === 'checkbox');
+    if (allCheckboxTasks.length === 0) return null;
 
     const labels: string[] = [];
     const data: number[] = [];
@@ -253,6 +266,16 @@ export default function DashboardScreen() {
       const date = format(subDays(new Date(), i), 'yyyy-MM-dd');
       if (date < firstEntryDate) continue;
 
+      // Get only visible checkbox tasks for this specific date
+      const visibleCheckboxTasks = allCheckboxTasks.filter(task => isTaskVisibleOnDate(task, date));
+
+      // Skip days with no scheduled checkbox tasks
+      if (visibleCheckboxTasks.length === 0) {
+        labels.push(format(parseISO(date), 'M/d'));
+        data.push(100); // 100% if no tasks scheduled
+        continue;
+      }
+
       labels.push(format(parseISO(date), 'M/d'));
 
       const entry = entries.find((e) => e.date === date);
@@ -260,11 +283,11 @@ export default function DashboardScreen() {
 
       if (sectionEntry) {
         let completed = 0;
-        checkboxTasks.forEach((task) => {
+        visibleCheckboxTasks.forEach((task) => {
           const response = sectionEntry.taskResponses.find((tr) => tr.taskId === task.id);
           if (response?.value === true) completed++;
         });
-        data.push(Math.round((completed / checkboxTasks.length) * 100));
+        data.push(Math.round((completed / visibleCheckboxTasks.length) * 100));
       } else {
         data.push(0);
       }
@@ -275,7 +298,8 @@ export default function DashboardScreen() {
     // Calculate average completion
     const average = Math.round(data.reduce((a, b) => a + b, 0) / data.length);
 
-    return { labels, data, taskCount: checkboxTasks.length, average };
+    // Show total checkbox tasks count (not per-day)
+    return { labels, data, taskCount: allCheckboxTasks.length, average };
   }, [selectedSection, entries, effectiveDays, firstEntryDate]);
 
   // Calculate numeric task data - only from first entry date
@@ -310,22 +334,31 @@ export default function DashboardScreen() {
     });
   }, [selectedSection, entries, effectiveDays, firstEntryDate]);
 
-  // Calculate streak for checkbox tasks
+  // Calculate streak for checkbox tasks (schedule-aware)
   const streak = useMemo(() => {
     if (!selectedSection) return 0;
 
-    const checkboxTasks = selectedSection.tasks.filter((t) => t.type === 'checkbox');
-    if (checkboxTasks.length === 0) return 0;
+    const allCheckboxTasks = selectedSection.tasks.filter((t) => t.type === 'checkbox');
+    if (allCheckboxTasks.length === 0) return 0;
 
     let currentStreak = 0;
     for (let i = 0; i < 365; i++) {
       const date = format(subDays(new Date(), i), 'yyyy-MM-dd');
+
+      // Get only visible checkbox tasks for this specific date
+      const visibleCheckboxTasks = allCheckboxTasks.filter(task => isTaskVisibleOnDate(task, date));
+
+      // Skip days with no scheduled checkbox tasks (don't break streak)
+      if (visibleCheckboxTasks.length === 0) {
+        continue;
+      }
+
       const entry = allEntries.find((e) => e.date === date);
       const sectionEntry = entry?.sectionEntries.find((se) => se.sectionId === selectedSection.id);
 
       if (sectionEntry) {
         let allCompleted = true;
-        checkboxTasks.forEach((task) => {
+        visibleCheckboxTasks.forEach((task) => {
           const response = sectionEntry.taskResponses.find((tr) => tr.taskId === task.id);
           if (response?.value !== true) allCompleted = false;
         });

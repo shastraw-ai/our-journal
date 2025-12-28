@@ -22,7 +22,8 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import * as Notifications from 'expo-notifications';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { useAuthStore } from '../../src/stores/authStore';
-import { TaskType, FamilyMember, Section } from '../../src/types';
+import { TaskType, FamilyMember, Section, DayOfWeek } from '../../src/types';
+import { getScheduleDescription } from '../../src/utils/taskScheduleUtils';
 import { router } from 'expo-router';
 
 // Configure notifications
@@ -65,6 +66,13 @@ export default function SettingsScreen() {
   const [taskName, setTaskName] = useState('');
   const [taskType, setTaskType] = useState<TaskType>('checkbox');
   const [taskUnit, setTaskUnit] = useState('');
+
+  // Task schedule and reminder states
+  const [taskScheduleEnabled, setTaskScheduleEnabled] = useState(false);
+  const [taskScheduleDays, setTaskScheduleDays] = useState<DayOfWeek[]>([]);
+  const [taskReminderEnabled, setTaskReminderEnabled] = useState(false);
+  const [taskReminderTime, setTaskReminderTime] = useState(new Date(new Date().setHours(9, 0, 0, 0)));
+  const [showTaskTimePicker, setShowTaskTimePicker] = useState(false);
 
   // Expanded states
   const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
@@ -252,29 +260,81 @@ export default function SettingsScreen() {
         setTaskName(task.name);
         setTaskType(task.type);
         setTaskUnit(task.unit || '');
+        // Load schedule
+        setTaskScheduleEnabled(task.schedule?.enabled ?? false);
+        setTaskScheduleDays(task.schedule?.days ?? []);
+        // Load reminder
+        setTaskReminderEnabled(task.reminder?.enabled ?? false);
+        if (task.reminder) {
+          const time = new Date();
+          time.setHours(task.reminder.hour, task.reminder.minute, 0, 0);
+          setTaskReminderTime(time);
+        } else {
+          setTaskReminderTime(new Date(new Date().setHours(9, 0, 0, 0)));
+        }
       }
     } else {
       setEditingTask({ memberId, sectionId, taskId: null });
       setTaskName('');
       setTaskType('checkbox');
       setTaskUnit('');
+      setTaskScheduleEnabled(false);
+      setTaskScheduleDays([]);
+      setTaskReminderEnabled(false);
+      setTaskReminderTime(new Date(new Date().setHours(9, 0, 0, 0)));
     }
     setTaskModalVisible(true);
   };
 
   const saveTask = () => {
     if (!editingTask || !taskName.trim()) return;
+
+    const schedule = taskScheduleEnabled ? {
+      enabled: true,
+      days: taskScheduleDays,
+    } : undefined;
+
+    const reminder = taskReminderEnabled ? {
+      enabled: true,
+      hour: taskReminderTime.getHours(),
+      minute: taskReminderTime.getMinutes(),
+    } : undefined;
+
     if (editingTask.taskId) {
       updateTask(editingTask.memberId, editingTask.sectionId, editingTask.taskId, {
         name: taskName.trim(),
         type: taskType,
         unit: taskType === 'numeric' ? taskUnit.trim() || undefined : undefined,
+        schedule,
+        reminder,
       });
     } else {
-      addTask(editingTask.memberId, editingTask.sectionId, taskName.trim(), taskType,
-        taskType === 'numeric' ? taskUnit.trim() || undefined : undefined);
+      addTask(
+        editingTask.memberId,
+        editingTask.sectionId,
+        taskName.trim(),
+        taskType,
+        taskType === 'numeric' ? taskUnit.trim() || undefined : undefined,
+        schedule,
+        reminder
+      );
     }
     setTaskModalVisible(false);
+  };
+
+  const handleTaskTimeChange = (event: DateTimePickerEvent, selectedTime?: Date) => {
+    setShowTaskTimePicker(Platform.OS === 'ios');
+    if (selectedTime) {
+      setTaskReminderTime(selectedTime);
+    }
+  };
+
+  const toggleScheduleDay = (day: DayOfWeek) => {
+    setTaskScheduleDays(prev =>
+      prev.includes(day)
+        ? prev.filter(d => d !== day)
+        : [...prev, day]
+    );
   };
 
   const handleLogout = () => {
@@ -400,6 +460,12 @@ export default function SettingsScreen() {
                     <MaterialCommunityIcons name={getTaskTypeIcon(task.type)} size={18} color={theme.colors.onSurfaceVariant} />
                     <Text variant="bodyMedium" style={styles.taskName}>{task.name}</Text>
                     {task.unit && <Chip compact style={styles.unitChip} textStyle={styles.chipText}>{task.unit}</Chip>}
+                    {task.schedule?.enabled && (
+                      <MaterialCommunityIcons name="calendar-week" size={16} color={theme.colors.primary} />
+                    )}
+                    {task.reminder?.enabled && (
+                      <MaterialCommunityIcons name="bell" size={16} color={theme.colors.secondary} />
+                    )}
                   </View>
                   <View style={styles.taskActions}>
                     <IconButton icon="pencil" size={16} onPress={() => openTaskModal(member.id, section.id, task.id)} />
@@ -538,23 +604,112 @@ export default function SettingsScreen() {
       {/* Task Modal */}
       <Portal>
         <Modal visible={taskModalVisible} onDismiss={() => setTaskModalVisible(false)} contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}>
-          <Text variant="headlineSmall" style={styles.modalTitle}>{editingTask?.taskId ? 'Edit Task' : 'Add Task'}</Text>
-          <TextInput label="Task Name" value={taskName} onChangeText={setTaskName} placeholder="e.g., Brushed teeth, Read for 30 min" style={styles.input} mode="outlined" autoFocus />
-          <Text variant="labelLarge" style={styles.typeLabel}>Task Type</Text>
-          <SegmentedButtons value={taskType} onValueChange={(value) => setTaskType(value as TaskType)} buttons={[
-            { value: 'checkbox', label: 'Yes/No', icon: 'checkbox-marked-outline' },
-            { value: 'text', label: 'Text', icon: 'text' },
-            { value: 'numeric', label: 'Number', icon: 'numeric' },
-          ]} style={styles.segmentedButtons} />
-          {taskType === 'numeric' && (
-            <TextInput label="Unit (optional)" value={taskUnit} onChangeText={setTaskUnit} placeholder="e.g., minutes, glasses, pages" style={styles.input} mode="outlined" />
-          )}
-          <View style={styles.modalActions}>
-            <Button onPress={() => setTaskModalVisible(false)}>Cancel</Button>
-            <Button mode="contained" onPress={saveTask}>{editingTask?.taskId ? 'Save' : 'Add Task'}</Button>
-          </View>
+          <KeyboardAwareScrollView
+            enableOnAndroid={true}
+            enableAutomaticScroll={true}
+            extraScrollHeight={50}
+            showsVerticalScrollIndicator={false}
+            style={styles.taskModalScroll}
+          >
+            <Text variant="headlineSmall" style={styles.modalTitle}>{editingTask?.taskId ? 'Edit Task' : 'Add Task'}</Text>
+            <TextInput label="Task Name" value={taskName} onChangeText={setTaskName} placeholder="e.g., Brushed teeth, Read for 30 min" style={styles.input} mode="outlined" autoFocus />
+            <Text variant="labelLarge" style={styles.typeLabel}>Task Type</Text>
+            <SegmentedButtons value={taskType} onValueChange={(value) => setTaskType(value as TaskType)} buttons={[
+              { value: 'checkbox', label: 'Yes/No', icon: 'checkbox-marked-outline' },
+              { value: 'text', label: 'Text', icon: 'text' },
+              { value: 'numeric', label: 'Number', icon: 'numeric' },
+            ]} style={styles.segmentedButtons} />
+            {taskType === 'numeric' && (
+              <TextInput label="Unit (optional)" value={taskUnit} onChangeText={setTaskUnit} placeholder="e.g., minutes, glasses, pages" style={styles.input} mode="outlined" />
+            )}
+
+            {/* Schedule Section */}
+            <Divider style={styles.scheduleDivider} />
+            <View style={styles.scheduleSection}>
+              <View style={styles.scheduleHeader}>
+                <MaterialCommunityIcons name="calendar-week" size={20} color={theme.colors.primary} />
+                <Text variant="labelLarge" style={styles.scheduleTitle}>Schedule</Text>
+                <Switch value={taskScheduleEnabled} onValueChange={setTaskScheduleEnabled} />
+              </View>
+              <Text variant="bodySmall" style={styles.scheduleHint}>
+                {taskScheduleEnabled ? 'Task visible only on selected days' : 'Task visible every day'}
+              </Text>
+
+              {taskScheduleEnabled && (
+                <View style={styles.daysContainer}>
+                  {(['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const).map((label, index) => (
+                    <Pressable
+                      key={index}
+                      onPress={() => toggleScheduleDay(index as DayOfWeek)}
+                      style={[
+                        styles.dayChip,
+                        { borderColor: theme.colors.outline },
+                        taskScheduleDays.includes(index as DayOfWeek) && { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }
+                      ]}
+                    >
+                      <Text style={[
+                        styles.dayChipText,
+                        { color: theme.colors.onSurface },
+                        taskScheduleDays.includes(index as DayOfWeek) && { color: theme.colors.onPrimary }
+                      ]}>
+                        {label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Reminder Section */}
+            <View style={styles.reminderSection}>
+              <View style={styles.scheduleHeader}>
+                <MaterialCommunityIcons name="bell-outline" size={20} color={theme.colors.secondary} />
+                <Text variant="labelLarge" style={styles.scheduleTitle}>Reminder</Text>
+                <Switch value={taskReminderEnabled} onValueChange={setTaskReminderEnabled} />
+              </View>
+              <Text variant="bodySmall" style={styles.scheduleHint}>
+                {taskReminderEnabled
+                  ? `Notify at ${formatTime(taskReminderTime)}${taskScheduleEnabled && taskScheduleDays.length > 0 ? ' on scheduled days' : ' daily'}`
+                  : 'No notification for this task'}
+              </Text>
+
+              {taskReminderEnabled && (
+                <Pressable onPress={() => setShowTaskTimePicker(true)} style={styles.taskTimeSelector}>
+                  <MaterialCommunityIcons name="clock-outline" size={18} color={theme.colors.secondary} />
+                  <Text variant="bodyMedium" style={{ color: theme.colors.secondary, fontWeight: '600' }}>
+                    {formatTime(taskReminderTime)}
+                  </Text>
+                  <MaterialCommunityIcons name="chevron-right" size={18} color={theme.colors.onSurfaceVariant} />
+                </Pressable>
+              )}
+
+              {taskReminderEnabled && taskType === 'checkbox' && (
+                <View style={styles.interactiveNote}>
+                  <MaterialCommunityIcons name="gesture-tap" size={16} color={theme.colors.tertiary} />
+                  <Text variant="bodySmall" style={{ color: theme.colors.tertiary, flex: 1 }}>
+                    Notification will include Yes/No buttons to mark completion
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.modalActions}>
+              <Button onPress={() => setTaskModalVisible(false)}>Cancel</Button>
+              <Button mode="contained" onPress={saveTask}>{editingTask?.taskId ? 'Save' : 'Add Task'}</Button>
+            </View>
+          </KeyboardAwareScrollView>
         </Modal>
       </Portal>
+
+      {/* Task Reminder Time Picker */}
+      {showTaskTimePicker && (
+        <DateTimePicker
+          value={taskReminderTime}
+          mode="time"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handleTaskTimeChange}
+        />
+      )}
     </View>
   );
 }
@@ -803,5 +958,68 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: 12,
     marginTop: 8,
+  },
+  taskModalScroll: {
+    maxHeight: 500,
+  },
+  scheduleDivider: {
+    marginVertical: 16,
+  },
+  scheduleSection: {
+    marginBottom: 16,
+  },
+  scheduleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  scheduleTitle: {
+    flex: 1,
+  },
+  scheduleHint: {
+    opacity: 0.6,
+    marginBottom: 12,
+    marginLeft: 28,
+  },
+  daysContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 6,
+    marginTop: 4,
+  },
+  dayChip: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dayChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  reminderSection: {
+    marginBottom: 8,
+  },
+  taskTimeSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 28,
+    marginTop: 4,
+    paddingVertical: 8,
+  },
+  interactiveNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 28,
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+    borderRadius: 8,
   },
 });

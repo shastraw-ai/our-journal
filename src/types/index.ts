@@ -16,11 +16,29 @@ export interface Section {
 // Task types for daily tracking
 export type TaskType = 'checkbox' | 'text' | 'numeric';
 
+// Day of week (0 = Sunday, 6 = Saturday)
+export type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+// Schedule configuration for a task
+export interface TaskSchedule {
+  enabled: boolean;
+  days: DayOfWeek[]; // Days when task is visible (empty = daily/all days)
+}
+
+// Reminder configuration for a task
+export interface TaskReminder {
+  enabled: boolean;
+  hour: number; // 0-23
+  minute: number; // 0-59
+}
+
 export interface Task {
   id: string;
   name: string;
   type: TaskType;
   unit?: string; // for numeric tasks (e.g., "minutes", "glasses", "pages")
+  schedule?: TaskSchedule; // Optional schedule for task visibility
+  reminder?: TaskReminder; // Optional reminder notification
 }
 
 // Daily entry for a family member

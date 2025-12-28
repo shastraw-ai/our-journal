@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
-import { FamilyMember, Section, Task, TaskType, AppSettings } from '../types';
+import { FamilyMember, Section, Task, TaskType, AppSettings, TaskSchedule, TaskReminder } from '../types';
+import { notificationService } from '../services/notificationService';
 
 const generateId = () => Crypto.randomUUID();
 
@@ -21,9 +22,12 @@ interface SettingsStore {
   deleteSection: (memberId: string, sectionId: string) => void;
 
   // Task operations
-  addTask: (memberId: string, sectionId: string, name: string, type: TaskType, unit?: string) => void;
-  updateTask: (memberId: string, sectionId: string, taskId: string, updates: Partial<Pick<Task, 'name' | 'type' | 'unit'>>) => void;
+  addTask: (memberId: string, sectionId: string, name: string, type: TaskType, unit?: string, schedule?: TaskSchedule, reminder?: TaskReminder) => void;
+  updateTask: (memberId: string, sectionId: string, taskId: string, updates: Partial<Pick<Task, 'name' | 'type' | 'unit' | 'schedule' | 'reminder'>>) => void;
   deleteTask: (memberId: string, sectionId: string, taskId: string) => void;
+
+  // Notification sync
+  syncNotifications: () => Promise<void>;
 
   // Persistence
   loadSettings: () => Promise<void>;
@@ -117,12 +121,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     get().saveSettings();
   },
 
-  addTask: (memberId, sectionId, name, type, unit) => {
+  addTask: (memberId, sectionId, name, type, unit, schedule, reminder) => {
     const newTask: Task = {
       id: generateId(),
       name,
       type,
       unit,
+      schedule,
+      reminder,
     };
     set((state) => ({
       members: state.members.map((m) =>
@@ -140,6 +146,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       lastModified: new Date().toISOString(),
     }));
     get().saveSettings();
+    get().syncNotifications();
   },
 
   updateTask: (memberId, sectionId, taskId, updates) => {
@@ -164,9 +171,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       lastModified: new Date().toISOString(),
     }));
     get().saveSettings();
+    get().syncNotifications();
   },
 
   deleteTask: (memberId, sectionId, taskId) => {
+    // Cancel notifications for this task before deleting
+    notificationService.cancelTaskReminders(memberId, sectionId, taskId);
     set((state) => ({
       members: state.members.map((m) =>
         m.id === memberId
@@ -183,6 +193,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       lastModified: new Date().toISOString(),
     }));
     get().saveSettings();
+  },
+
+  syncNotifications: async () => {
+    const { members } = get();
+    await notificationService.rescheduleAllReminders(members);
   },
 
   loadSettings: async () => {
@@ -224,6 +239,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       lastModified: settings.lastModified,
     });
     get().saveSettings();
+    get().syncNotifications();
   },
 
   exportSettings: () => {

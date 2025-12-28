@@ -20,6 +20,7 @@ import { useSettingsStore } from '../../src/stores/settingsStore';
 import { useEntriesStore } from '../../src/stores/entriesStore';
 import { useAuthStore } from '../../src/stores/authStore';
 import { FamilyMember, Section, Task } from '../../src/types';
+import { getVisibleTasks } from '../../src/utils/taskScheduleUtils';
 import { router } from 'expo-router';
 
 export default function HomeScreen() {
@@ -125,7 +126,9 @@ export default function HomeScreen() {
   };
 
   const getCompletionCount = (section: Section): { completed: number; total: number } => {
-    const checkboxTasks = section.tasks.filter(t => t.type === 'checkbox');
+    // Only count visible tasks for the current date
+    const visibleTasks = getVisibleTasks(section, currentDate);
+    const checkboxTasks = visibleTasks.filter(t => t.type === 'checkbox');
     if (checkboxTasks.length === 0) return { completed: 0, total: 0 };
 
     let completed = 0;
@@ -398,18 +401,37 @@ export default function HomeScreen() {
         {selectedSection && (
           <>
             {/* Tasks */}
-            {selectedSection.tasks.length === 0 ? (
-              <Surface style={styles.emptyTasks} elevation={0}>
-                <MaterialCommunityIcons name="clipboard-text-outline" size={40} color={theme.colors.onSurfaceVariant} />
-                <Text variant="bodyMedium" style={styles.emptyTasksText}>
-                  No tasks in this section
-                </Text>
-              </Surface>
-            ) : (
-              <View style={styles.tasksList}>
-                {selectedSection.tasks.map((task) => renderTaskInput(task))}
-              </View>
-            )}
+            {(() => {
+              const visibleTasks = getVisibleTasks(selectedSection, currentDate);
+
+              if (selectedSection.tasks.length === 0) {
+                return (
+                  <Surface style={styles.emptyTasks} elevation={0}>
+                    <MaterialCommunityIcons name="clipboard-text-outline" size={40} color={theme.colors.onSurfaceVariant} />
+                    <Text variant="bodyMedium" style={styles.emptyTasksText}>
+                      No tasks in this section
+                    </Text>
+                  </Surface>
+                );
+              }
+
+              if (visibleTasks.length === 0) {
+                return (
+                  <Surface style={styles.emptyTasks} elevation={0}>
+                    <MaterialCommunityIcons name="calendar-blank" size={40} color={theme.colors.onSurfaceVariant} />
+                    <Text variant="bodyMedium" style={styles.emptyTasksText}>
+                      No tasks scheduled for this day
+                    </Text>
+                  </Surface>
+                );
+              }
+
+              return (
+                <View style={styles.tasksList}>
+                  {visibleTasks.map((task) => renderTaskInput(task))}
+                </View>
+              );
+            })()}
 
             {/* Notes */}
             <Surface style={styles.notesCard} elevation={1}>
