@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, StyleSheet, Pressable, Platform } from 'react-native';
+import { View, StyleSheet, Pressable, Platform, KeyboardAvoidingView } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import {
   Text,
@@ -779,6 +779,10 @@ export default function SettingsScreen() {
           }}
           contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
         >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+          >
           <View style={styles.cleanSlateModalHeader}>
             <MaterialCommunityIcons name="alert-circle" size={48} color={theme.colors.error} />
             <Text variant="headlineSmall" style={[styles.modalTitle, { color: theme.colors.error }]}>
@@ -847,6 +851,7 @@ export default function SettingsScreen() {
               Delete Everything
             </Button>
           </View>
+          </KeyboardAvoidingView>
         </Modal>
       </Portal>
     </View>
