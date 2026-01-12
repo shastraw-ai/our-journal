@@ -576,29 +576,6 @@ export default function SettingsScreen() {
           />
         )}
 
-        {/* Clean Slate Card */}
-        <Card style={[styles.cleanSlateCard, { borderColor: theme.colors.error }]}>
-          <View style={styles.cleanSlateContent}>
-            <View style={styles.cleanSlateInfo}>
-              <MaterialCommunityIcons name="delete-forever" size={24} color={theme.colors.error} />
-              <View style={styles.cleanSlateText}>
-                <Text variant="titleSmall" style={{ color: theme.colors.error }}>Start a Clean Slate</Text>
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  Delete all data and start over
-                </Text>
-              </View>
-            </View>
-            <Button
-              mode="outlined"
-              textColor={theme.colors.error}
-              style={{ borderColor: theme.colors.error }}
-              onPress={() => setCleanSlateModalVisible(true)}
-            >
-              Reset
-            </Button>
-          </View>
-        </Card>
-
         {/* Members Section */}
         <View style={styles.membersSection}>
           <View style={styles.membersHeader}>
@@ -623,6 +600,29 @@ export default function SettingsScreen() {
             members.map(renderMember)
           )}
         </View>
+        
+        {/* Clean Slate Card */}
+        <Card style={[styles.cleanSlateCard, { borderColor: theme.colors.error }]}>
+          <View style={styles.cleanSlateContent}>
+            <View style={styles.cleanSlateInfo}>
+              <MaterialCommunityIcons name="delete-forever" size={24} color={theme.colors.error} />
+              <View style={styles.cleanSlateText}>
+                <Text variant="titleSmall" style={{ color: theme.colors.error }}>Start a Clean Slate</Text>
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  Delete all data and start over
+                </Text>
+              </View>
+            </View>
+            <Button
+              mode="outlined"
+              textColor={theme.colors.error}
+              style={{ borderColor: theme.colors.error }}
+              onPress={() => setCleanSlateModalVisible(true)}
+            >
+              Reset
+            </Button>
+          </View>
+        </Card>
       </KeyboardAwareScrollView>
 
       {/* Member Modal */}

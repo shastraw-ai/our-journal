@@ -184,6 +184,8 @@ export default function HomeScreen() {
               style={styles.textInput}
               outlineColor={theme.colors.outline}
               activeOutlineColor={selectedMember?.color}
+              multiline={true}
+              numberOfLines={4}
             />
           </Surface>
         );
@@ -661,6 +663,8 @@ const styles = StyleSheet.create({
   },
   textInput: {
     backgroundColor: 'transparent',
+    minHeight: 100,
+    textAlignVertical: 'top',
   },
   numericTask: {
     flexDirection: 'row',

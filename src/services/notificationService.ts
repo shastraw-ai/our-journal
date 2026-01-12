@@ -23,12 +23,12 @@ export const notificationService = {
       {
         identifier: 'YES',
         buttonTitle: 'Yes, Done!',
-        options: { opensAppToForeground: false },
+        options: { opensAppToForeground: true },
       },
       {
         identifier: 'NO',
         buttonTitle: 'Not Yet',
-        options: { opensAppToForeground: false },
+        options: { opensAppToForeground: true },
       },
     ]);
   },

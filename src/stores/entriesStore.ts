@@ -205,17 +205,41 @@ export const useEntriesStore = create<EntriesStore>((set, get) => ({
         byMonth.get(month)!.push(entry);
       });
 
-      // Save each month's data
+      // Save each month's data, merging with existing data to prevent data loss
       const savePromises: Promise<void>[] = [];
       byMonth.forEach((monthEntries, month) => {
-        const monthlyData: MonthlyEntries = {
-          month,
-          entries: monthEntries,
-          lastModified: new Date().toISOString(),
+        const saveMonth = async () => {
+          const storageKey = `entries_${month}`;
+
+          // Load existing data for this month to merge with
+          const existingJson = await AsyncStorage.getItem(storageKey);
+          let mergedEntries = [...monthEntries];
+
+          if (existingJson) {
+            const existingData: MonthlyEntries = JSON.parse(existingJson);
+            // Create a map of new entries by key for quick lookup
+            const newEntriesMap = new Map<string, DailyEntry>();
+            monthEntries.forEach((entry) => {
+              newEntriesMap.set(getEntryKey(entry.memberId, entry.date), entry);
+            });
+
+            // Add existing entries that aren't being overwritten
+            existingData.entries.forEach((existingEntry) => {
+              const key = getEntryKey(existingEntry.memberId, existingEntry.date);
+              if (!newEntriesMap.has(key)) {
+                mergedEntries.push(existingEntry);
+              }
+            });
+          }
+
+          const monthlyData: MonthlyEntries = {
+            month,
+            entries: mergedEntries,
+            lastModified: new Date().toISOString(),
+          };
+          await AsyncStorage.setItem(storageKey, JSON.stringify(monthlyData));
         };
-        savePromises.push(
-          AsyncStorage.setItem(`entries_${month}`, JSON.stringify(monthlyData))
-        );
+        savePromises.push(saveMonth());
       });
 
       await Promise.all(savePromises);

@@ -45,6 +45,12 @@ export default function RootLayout() {
     const initNotifications = async () => {
       // Setup notification categories for interactive Yes/No buttons
       await notificationService.setupNotificationCategories();
+
+      // Handle any notification response that occurred while app was killed
+      const lastResponse = await Notifications.getLastNotificationResponseAsync();
+      if (lastResponse) {
+        notificationService.handleNotificationResponse(lastResponse);
+      }
     };
 
     initNotifications();
